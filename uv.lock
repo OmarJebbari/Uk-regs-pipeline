@@ -1999,14 +1999,18 @@ name = "uk-regs-mcp-server"
 version = "0.1.0"
 source = { editable = "apps/mcp_server" }
 dependencies = [
+    { name = "httpx" },
     { name = "mcp" },
+    { name = "uk-regs-api" },
     { name = "uk-regs-core" },
     { name = "uk-regs-knowledge" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=0.9" },
+    { name = "uk-regs-api", editable = "apps/api" },
     { name = "uk-regs-core", editable = "packages/core" },
     { name = "uk-regs-knowledge", editable = "packages/knowledge" },
 ]

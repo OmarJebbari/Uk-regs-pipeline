@@ -10,7 +10,8 @@ TITLE   ?= "Approved Document B"
 VER     ?= "2026-ed1"
 
 .PHONY: help install up down status logs init-db reset \
-        ingest ingest-offline lint fmt test check clean
+        ingest ingest-offline lint fmt test check clean \
+        api api-mock mcp export-rules
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -74,6 +75,25 @@ test:  ## Run the test suite
 	uv run pytest -q
 
 check: lint test  ## lint + test
+
+# --------------------------------------------------------------------------- #
+#  Context API + MCP server (Phase 3)
+# --------------------------------------------------------------------------- #
+api:  ## Run the FastAPI context API (auto: Postgres if up, else mock)
+	UK_REGS_BACKEND=auto uv run uk-regs-api
+
+api-mock:  ## Run the API forced to the in-memory mock backend (no DB needed)
+	UK_REGS_BACKEND=mock uv run uk-regs-api
+
+mcp:  ## Run the MCP server over stdio (for Cursor/Claude IDE integration)
+	uv run uk-regs-mcp
+
+export-rules:  ## Export consolidated regulations to CONSOLIDATED_REGULATIONS.md
+	@uv run python -c "import json, urllib.request; \
+		r = urllib.request.urlopen('http://localhost:8000/export/markdown'); \
+		d = json.loads(r.read()); \
+		open(d['filename'], 'w', encoding='utf-8').write(d['content']); \
+		print(f'Wrote {d[\"filename\"]} ({d[\"rule_count\"]} rules)')"
 
 # --------------------------------------------------------------------------- #
 #  Misc

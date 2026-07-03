@@ -209,6 +209,55 @@ class RuleRepository:
             rows = cur.fetchall()
         return [(self._row_to_rule(r), r[-1]) for r in rows]
 
+    def get_rule_by_id(self, rule_id: str) -> Rule | None:
+        """Fetch a single rule by its stable id (any status/version)."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute("SELECT * FROM rules WHERE rule_id = %s", (rule_id,))
+            row = cur.fetchone()
+        return self._row_to_rule(row) if row else None
+
+    def get_by_category(self, category: str, *, now: date | None = None) -> list[Rule]:
+        """All current rules in a given Category (e.g. 'fire')."""
+        today = now or date.today()
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM rules
+                WHERE category = %s
+                  AND status = 'active'
+                  AND valid_from <= %s
+                  AND (valid_to IS NULL OR valid_to > %s)
+                ORDER BY section_path
+                """,
+                (category, today, today),
+            )
+            return [self._row_to_rule(r) for r in cur.fetchall()]
+
+    def search_fulltext(self, query: str, top_k: int = 10) -> list[tuple[Rule, float]]:
+        """
+        Keyword fallback when no embeddings are available.
+        Uses ILIKE over text + normalized_form + title; scores by crude relevance.
+        Returns (rule, score) where score is in [0, 1].
+        """
+        like = f"%{query.lower()}%"
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                """
+                SELECT *,
+                       (text ILIKE %s)::int + (title ILIKE %s)::int * 2
+                         + (normalized_form ILIKE %s)::int AS score
+                FROM rules
+                WHERE status = 'active'
+                  AND (text ILIKE %s OR title ILIKE %s OR normalized_form ILIKE %s)
+                ORDER BY score DESC, section_path
+                LIMIT %s
+                """,
+                (like, like, like, like, like, like, top_k),
+            )
+            rows = cur.fetchall()
+        max_score = max((r[-1] for r in rows), default=1) or 1
+        return [(self._row_to_rule(r), float(r[-1]) / max_score) for r in rows]
+
     def _row_to_rule(self, row) -> Rule:
         cols = [d[0] for d in row.cursor.description]
         r = dict(zip(cols, row))
@@ -306,3 +355,62 @@ class ChangeSetRepository:
                         d.diff_summary,
                     ),
                 )
+
+    def list_changes(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[ChangeSet]:
+        """List change-sets (optionally filtered by status), newest first."""
+        from uk_regs_core.enums import Decision
+
+        if status:
+            sql = (
+                "SELECT * FROM change_sets WHERE status = %s "
+                "ORDER BY created_at DESC LIMIT %s"
+            )
+            params: tuple = (status, limit)
+        else:
+            sql = "SELECT * FROM change_sets ORDER BY created_at DESC LIMIT %s"
+            params = (limit,)
+
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(sql, params)
+            cs_rows = cur.fetchall()
+            cs_cols = [d[0] for d in cur.description]
+            result: list[ChangeSet] = []
+            for cs_row in cs_rows:
+                csd = dict(zip(cs_cols, cs_row))
+                cur.execute(
+                    "SELECT * FROM rule_deltas WHERE change_set_id = %s "
+                    "ORDER BY decision, new_rule_id",
+                    (csd["change_set_id"],),
+                )
+                d_rows = cur.fetchall()
+                d_cols = [d[0] for d in cur.description]
+                deltas = [
+                    RuleDelta(
+                        new_rule_id=dict(zip(d_cols, r))["new_rule_id"],
+                        matched_rule_id=dict(zip(d_cols, r))["matched_rule_id"],
+                        decision=Decision(dict(zip(d_cols, r))["decision"]),
+                        confidence=float(dict(zip(d_cols, r))["confidence"]),
+                        rationale=dict(zip(d_cols, r))["rationale"],
+                        diff_summary=dict(zip(d_cols, r))["diff_summary"],
+                    )
+                    for r in d_rows
+                ]
+                result.append(
+                    ChangeSet(
+                        change_set_id=csd["change_set_id"],
+                        doc_id=csd["doc_id"],
+                        version=csd["version"],
+                        created_at=csd["created_at"],
+                        deltas=deltas,
+                        status=csd["status"],
+                        reviewed_by=csd["reviewed_by"],
+                        reviewed_at=csd["reviewed_at"],
+                        review_notes=csd["review_notes"],
+                    )
+                )
+        return result
