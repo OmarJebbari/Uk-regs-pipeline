@@ -31,102 +31,129 @@ PDF → Intake → Document Intelligence → Deterministic Facts → LLM Rule Ex
 
 ### System architecture diagram
 
+> Rendered with a modern **hand-drawn (sketch)** aesthetic. If your platform's
+> Mermaid is older and doesn't support `look: handDrawn`, it falls back gracefully
+> to a clean flat theme.
+
 ```mermaid
+---
+config:
+  look: handDrawn
+  handDrawnSeed: 42
+  theme: base
+  themeVariables:
+    fontFamily: '"Segoe UI", "Inter", system-ui, sans-serif'
+    fontSize: 14px
+    primaryColor: "#6366f1"
+    primaryTextColor: "#ffffff"
+    primaryBorderColor: "#4338ca"
+    lineColor: "#475569"
+    secondaryColor: "#f1f5f9"
+    tertiaryColor: "#ffffff"
+---
 flowchart TD
-    %% ───────────── Sources ─────────────
+    %% ════════════════ SOURCES ════════════════
     subgraph SRC["📥 Sources"]
-        S1["gov.uk / legislation.gov.uk"]
-        S2["Manual upload / drop folder"]
+        direction LR
+        S1(["gov.uk<br/>legislation.gov.uk"]):::src
+        S2(["Manual upload<br/>drop folder"]):::src
     end
 
-    %% ───────────── Ingest ─────────────
+    %% ════════════════ INTAKE ════════════════
     subgraph INGEST["⚙️ Intake & Storage"]
-        I1["Hash + dedup + virus scan"]
-        I2[("Object Store\nMinIO / S3\nimmutable originals")]
-        I3["Document manifest\n(doc_id, version, published_date)"]
+        I1[["Hash · dedup · virus scan"]]:::ingest
+        I2[("Object Store<br/>MinIO · S3<br/><i>immutable originals</i>")]:::store
+        I3["Document manifest<br/>doc_id · version · published_date"]:::ingest
+        I1 --> I2 --> I3
     end
 
-    %% ───────────── Document Intelligence ─────────────
+    %% ════════════════ DOCUMENT INTELLIGENCE ════════════════
     subgraph DOCINT["🔍 Document Intelligence"]
-        D1["Layout-aware parse\nDocling / LlamaParse / PyMuPDF"]
-        D2["OCR fallback\nPaddleOCR / Tesseract"]
-        D3["Blocks + tables\n(page_no, bbox)"]
-        D4["Figure extraction\n(image + caption)"]
+        D1["Layout-aware parse<br/>Docling · LlamaParse · PyMuPDF"]:::parse
+        D2["OCR fallback<br/>PaddleOCR · Tesseract"]:::parse
+        D3["Blocks + tables<br/>page_no · bbox"]:::parse
+        D4["Figure extraction<br/>image + caption"]:::parse
+        D1 --> D2 --> D3 --> D4
     end
 
-    %% ───────────── Extraction ─────────────
+    %% ════════════════ EXTRACTION ════════════════
     subgraph EXTRACT["🧠 Extraction"]
-        E1["Deterministic extractors\n• dimensions\n• standards refs (BS EN)\n• section IDs"]
-        E2["LLM rule extractor\nstructured outputs + Pydantic\nclassify: regulation | guidance | ..."]
-        E3["VLM figure understander\nGPT-4o / Claude / Gemini"]
-        E4["Embeddings\ntext-embedding-3-small + ColPali"]
+        E1["Deterministic extractors<br/>dimensions · BS EN refs · section IDs"]:::ai
+        E2["LLM rule extractor<br/>structured outputs + Pydantic"]:::ai
+        E3["VLM figure understander<br/>GPT-4o · Claude · Gemini"]:::ai
+        E4["Embeddings<br/>text-embedding-3-small + ColPali"]:::ai
+        E1 --> E2 --> E3 --> E4
     end
 
-    %% ───────────── Knowledge plane ─────────────
-    subgraph KNOW["💾 Knowledge Plane (bitemporal)"]
-        K1[("PostgreSQL + pgvector\nrules, manifests, change-sets, vectors")]
-        K2[("Neo4j\ngraph: supersession, references, dependencies")]
+    %% ════════════════ KNOWLEDGE ════════════════
+    subgraph KNOW["💾 Knowledge Plane — bitemporal"]
+        K1[("PostgreSQL + pgvector<br/>rules · manifests · change-sets · vectors")]:::db
+        K2[("Neo4j<br/>supersession · references · dependencies")]:::db
+        K1 <-.-> K2
     end
 
-    %% ───────────── Reconciliation ─────────────
+    %% ════════════════ RECONCILIATION ════════════════
     subgraph RECON["🔁 Reconciliation Engine"]
-        R1["Match new rules\nvs current corpus"]
-        R2{"Decision"}        
-        R2 -->|"match"| R3["unchanged"]
-        R2 -->|"partial"| R4["amended\nSUPERSEDED_BY edge"]
-        R2 -->|"novel"| R5["added"]
-        R2 -->|"conflict"| R6["human review"]
-        R7["ChangeSet\nstatus: proposed → approved"]
+        R1["Match new rules<br/>vs current corpus"]:::recon
+        R2{"Decision<br/>pair + classify"}:::decision
+        R1 --> R2
+        R2 -->|match| R3["unchanged"]:::recon
+        R2 -->|partial| R4["amended<br/>SUPERSEDED_BY edge"]:::recon
+        R2 -->|novel| R5["added"]:::recon
+        R2 -->|conflict| R6{{"human review"}}:::warn
+        R7["ChangeSet<br/>proposed → approved"]:::recon
+        R3 & R4 & R5 --> R7
+        R6 --> R7
     end
 
-    %% ───────────── Quality / Eval ─────────────
+    %% ════════════════ QUALITY ════════════════
     subgraph QA["✅ Quality & Eval"]
-        Q1["Golden set"]
-        Q2["DeepEval / RAGAS"]
-        Q3["Confidence routing"]
+        direction LR
+        Q1["Golden set"]:::qa
+        Q2["DeepEval · RAGAS"]:::qa
+        Q3["Confidence routing"]:::qa
     end
 
-    %% ───────────── Serving ─────────────
+    %% ════════════════ SERVING ════════════════
     subgraph SERVE["🚀 Context Serving"]
-        A1["FastAPI\nREST / RAG endpoints"]
-        A2["MCP server\ntools for IDE"]
-        A3[".cursor/rules + CLAUDE.md\nstatic export"]
+        A1["FastAPI<br/>REST · RAG endpoints"]:::serve
+        A2["MCP server<br/>tools for IDE"]:::serve
+        A3[".cursor/rules · CLAUDE.md<br/>static export"]:::serve
     end
 
-    %% ───────────── Consumers ─────────────
+    %% ════════════════ CONSUMER ════════════════
     subgraph IDE["🧑‍💻 IDE / Assistant"]
-        C1["Cursor / Claude / Copilot"]
+        C1["Cursor · Claude · Copilot<br/><b>edits code from cited context</b>"]:::ide
     end
 
-    %% ───────────── Cross-cutting ─────────────
-    OBS["🔎 Observability\nOpenTelemetry + Langfuse"] -.-> EXTRACT
+    %% ════════════════ CROSS-CUTTING ════════════════
+    OBS(["🔎 Observability<br/>OpenTelemetry + Langfuse"]):::obs
+    OBS -.-> EXTRACT
     OBS -.-> RECON
     OBS -.-> SERVE
 
-    %% ───────────── Main flow ─────────────
-    SRC --> INGEST
-    INGEST --> DOCINT
-    DOCINT --> EXTRACT
-    EXTRACT --> RECON
-    RECON --> KNOW
-    KNOW --> SERVE
-    QA --> RECON
-    SERVE --> IDE
+    %% ════════════════ MAIN FLOW ════════════════
+    SRC ==> INGEST ==> DOCINT ==> EXTRACT ==> RECON ==> KNOW ==> SERVE ==> IDE
+    QA ==> RECON
 
-    %% ───────────── Styling ─────────────
-    classDef source fill:#e1f5ff,stroke:#0288d1,color:#01579b
-    classDef extract fill:#fff3e0,stroke:#ef6c00,color:#e65100
-    classDef recon fill:#fce4ec,stroke:#c2185b,color:#880e4f
-    classDef know fill:#e8f5e9,stroke:#388e3c,color:#1b5e20
-    classDef serve fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
-    classDef qa fill:#fffde7,stroke:#fbc02d,color:#f57f17
+    %% ════════════════ MODERN PALETTE ════════════════
+    classDef src     fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef ingest  fill:#f0f9ff,stroke:#0ea5e9,stroke-width:2px,color:#0c4a6e
+    classDef store   fill:#dbeafe,stroke:#2563eb,stroke-width:2.5px,color:#1e3a8a
+    classDef parse   fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#7c2d12
+    classDef ai      fill:#faf5ff,stroke:#9333ea,stroke-width:2.5px,color:#581c87
+    classDef db      fill:#ecfdf5,stroke:#059669,stroke-width:2.5px,color:#064e3b
+    classDef recon   fill:#fdf2f8,stroke:#db2777,stroke-width:2px,color:#831843
+    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:2.5px,color:#78350f
+    classDef warn    fill:#fee2e2,stroke:#dc2626,stroke-width:3px,color:#7f1d1d
+    classDef qa      fill:#fefce8,stroke:#ca8a04,stroke-width:2px,color:#713f12
+    classDef serve   fill:#f5f3ff,stroke:#7c3aed,stroke-width:2.5px,color:#4c1d95
+    classDef ide     fill:#0f172a,stroke:#6366f1,stroke-width:3px,color:#f8fafc
+    classDef obs     fill:#f8fafc,stroke:#475569,stroke-width:2px,stroke-dasharray:5 5,color:#1e293b
 
-    class S1,S2 source
-    class D1,D2,D3,D4,E1,E2,E3,E4 extract
-    class R1,R2,R3,R4,R5,R6,R7 recon
-    class K1,K2 know
-    class A1,A2,A3 serve
-    class Q1,Q2,Q3 qa
+    %% ════════════════ LINK STYLING ════════════════
+    linkStyle default stroke:#94a3b8,stroke-width:2px
+    linkStyle 0,1,2,3,4,5,6,7 stroke:#6366f1,stroke-width:3px
 ```
 
 | Principle | How |
