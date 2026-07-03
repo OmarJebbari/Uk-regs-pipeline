@@ -1,0 +1,41 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.python-version
+
+# ---- Virtual envs ----
+.venv/
+venv/
+env/
+
+# ---- Tool caches ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- Env / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+
+# ---- Data (never commit PDFs / large files) ----
+data/*.pdf
+data/*.png
+data/*.jpg
+data/out/
+!data/.gitkeep
+
+# ---- OS ----
+.DS_Store
+Thumbs.db

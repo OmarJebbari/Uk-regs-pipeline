@@ -1,0 +1,1 @@
+"""Relational persistence (PostgreSQL + pgvector)."""

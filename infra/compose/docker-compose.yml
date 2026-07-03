@@ -1,0 +1,88 @@
+# =============================================================================
+# UK Regs Pipeline — local development stack
+#
+# Brings up the data plane: Postgres+pgvector, Neo4j, MinIO.
+# The Python app is run on the host (via `uv run`) for fast iteration.
+# =============================================================================
+# Usage:
+#   docker compose -f infra/compose/docker-compose.yml up -d
+#   docker compose -f infra/compose/docker-compose.yml down -v   # reset
+# =============================================================================
+
+name: uk-regs
+
+services:
+  # ---- Postgres + pgvector ----------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ukregs-postgres
+    environment:
+      POSTGRES_USER: ukregs
+      POSTGRES_PASSWORD: ukregs
+      POSTGRES_DB: ukregs
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ukregs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---- Neo4j (supersession / reference graph) ---------------------------
+  neo4j:
+    image: neo4j:5.20
+    container_name: ukregs-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/password
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"   # browser UI
+      - "7687:7687"   # bolt
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---- MinIO (S3-compatible object storage) -----------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: ukregs-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---- One-shot bucket provisioner --------------------------------------
+  minio-init:
+    image: minio/mc:latest
+    container_name: ukregs-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb -p local/uk-regs || true;
+      mc anonymous set download local/uk-regs || true;
+      echo 'bucket uk-regs ready';
+      "
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  minio_data:

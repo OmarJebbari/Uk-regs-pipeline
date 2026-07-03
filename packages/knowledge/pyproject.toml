@@ -1,0 +1,22 @@
+[project]
+name = "uk-regs-knowledge"
+version = "0.1.0"
+description = "Persistence: object storage, relational (pgvector), graph (Neo4j), repositories"
+requires-python = ">=3.12"
+dependencies = [
+    "uk-regs-core",
+    "psycopg[binary,pool]>=3.2",
+    "boto3>=1.34",
+    "neo4j>=5.20",
+    "numpy>=1.26",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uk_regs_knowledge"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/uk_regs_knowledge/relational/schema.sql" = "uk_regs_knowledge/relational/schema.sql"
