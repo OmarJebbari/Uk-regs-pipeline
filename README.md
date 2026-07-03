@@ -29,6 +29,106 @@ PDF → Intake → Document Intelligence → Deterministic Facts → LLM Rule Ex
     → Knowledge Graph (Neo4j) + Postgres/pgvector → Context Serving API + MCP Server → IDE
 ```
 
+### System architecture diagram
+
+```mermaid
+flowchart TD
+    %% ───────────── Sources ─────────────
+    subgraph SRC["📥 Sources"]
+        S1["gov.uk / legislation.gov.uk"]
+        S2["Manual upload / drop folder"]
+    end
+
+    %% ───────────── Ingest ─────────────
+    subgraph INGEST["⚙️ Intake & Storage"]
+        I1["Hash + dedup + virus scan"]
+        I2[("Object Store\nMinIO / S3\nimmutable originals")]
+        I3["Document manifest\n(doc_id, version, published_date)"]
+    end
+
+    %% ───────────── Document Intelligence ─────────────
+    subgraph DOCINT["🔍 Document Intelligence"]
+        D1["Layout-aware parse\nDocling / LlamaParse / PyMuPDF"]
+        D2["OCR fallback\nPaddleOCR / Tesseract"]
+        D3["Blocks + tables\n(page_no, bbox)"]
+        D4["Figure extraction\n(image + caption)"]
+    end
+
+    %% ───────────── Extraction ─────────────
+    subgraph EXTRACT["🧠 Extraction"]
+        E1["Deterministic extractors\n• dimensions\n• standards refs (BS EN)\n• section IDs"]
+        E2["LLM rule extractor\nstructured outputs + Pydantic\nclassify: regulation | guidance | ..."]
+        E3["VLM figure understander\nGPT-4o / Claude / Gemini"]
+        E4["Embeddings\ntext-embedding-3-small + ColPali"]
+    end
+
+    %% ───────────── Knowledge plane ─────────────
+    subgraph KNOW["💾 Knowledge Plane (bitemporal)"]
+        K1[("PostgreSQL + pgvector\nrules, manifests, change-sets, vectors")]
+        K2[("Neo4j\ngraph: supersession, references, dependencies")]
+    end
+
+    %% ───────────── Reconciliation ─────────────
+    subgraph RECON["🔁 Reconciliation Engine"]
+        R1["Match new rules\nvs current corpus"]
+        R2{"Decision"}        
+        R2 -->|"match"| R3["unchanged"]
+        R2 -->|"partial"| R4["amended\nSUPERSEDED_BY edge"]
+        R2 -->|"novel"| R5["added"]
+        R2 -->|"conflict"| R6["human review"]
+        R7["ChangeSet\nstatus: proposed → approved"]
+    end
+
+    %% ───────────── Quality / Eval ─────────────
+    subgraph QA["✅ Quality & Eval"]
+        Q1["Golden set"]
+        Q2["DeepEval / RAGAS"]
+        Q3["Confidence routing"]
+    end
+
+    %% ───────────── Serving ─────────────
+    subgraph SERVE["🚀 Context Serving"]
+        A1["FastAPI\nREST / RAG endpoints"]
+        A2["MCP server\ntools for IDE"]
+        A3[".cursor/rules + CLAUDE.md\nstatic export"]
+    end
+
+    %% ───────────── Consumers ─────────────
+    subgraph IDE["🧑‍💻 IDE / Assistant"]
+        C1["Cursor / Claude / Copilot"]
+    end
+
+    %% ───────────── Cross-cutting ─────────────
+    OBS["🔎 Observability\nOpenTelemetry + Langfuse"] -.-> EXTRACT
+    OBS -.-> RECON
+    OBS -.-> SERVE
+
+    %% ───────────── Main flow ─────────────
+    SRC --> INGEST
+    INGEST --> DOCINT
+    DOCINT --> EXTRACT
+    EXTRACT --> RECON
+    RECON --> KNOW
+    KNOW --> SERVE
+    QA --> RECON
+    SERVE --> IDE
+
+    %% ───────────── Styling ─────────────
+    classDef source fill:#e1f5ff,stroke:#0288d1,color:#01579b
+    classDef extract fill:#fff3e0,stroke:#ef6c00,color:#e65100
+    classDef recon fill:#fce4ec,stroke:#c2185b,color:#880e4f
+    classDef know fill:#e8f5e9,stroke:#388e3c,color:#1b5e20
+    classDef serve fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
+    classDef qa fill:#fffde7,stroke:#fbc02d,color:#f57f17
+
+    class S1,S2 source
+    class D1,D2,D3,D4,E1,E2,E3,E4 extract
+    class R1,R2,R3,R4,R5,R6,R7 recon
+    class K1,K2 know
+    class A1,A2,A3 serve
+    class Q1,Q2,Q3 qa
+```
+
 | Principle | How |
 |---|---|
 | **Provenance** | Every rule stores `doc_id`, `version`, `page`, `bbox`, `raw_text`. No citation = no rule. |
