@@ -31,25 +31,30 @@ PDF → Intake → Document Intelligence → Deterministic Facts → LLM Rule Ex
 
 ### System architecture diagram
 
-> Rendered with a modern **hand-drawn (sketch)** aesthetic. If your platform's
-> Mermaid is older and doesn't support `look: handDrawn`, it falls back gracefully
-> to a clean flat theme.
+> 🌙 **Dark-mode native.** A deep-navy canvas with vibrant, glowing nodes and white text —
+> designed to look striking on GitHub's dark theme (still perfectly readable in light mode).
+> Rendered with a hand-drawn (sketch) outline for a modern whiteboard feel.
 
 ```mermaid
 ---
 config:
   look: handDrawn
-  handDrawnSeed: 42
+  handDrawnSeed: 7
   theme: base
   themeVariables:
+    background: "#0b1220"
     fontFamily: '"Segoe UI", "Inter", system-ui, sans-serif'
     fontSize: 14px
-    primaryColor: "#6366f1"
-    primaryTextColor: "#ffffff"
-    primaryBorderColor: "#4338ca"
-    lineColor: "#475569"
-    secondaryColor: "#f1f5f9"
-    tertiaryColor: "#ffffff"
+    primaryColor: "#1e293b"
+    primaryTextColor: "#f8fafc"
+    primaryBorderColor: "#6366f1"
+    lineColor: "#94a3b8"
+    secondaryColor: "#0f1a30"
+    tertiaryColor: "#13203a"
+    mainBkg: "#0f1a30"
+    clusterBkg: "#0f1a30"
+    clusterBorder: "#334155"
+    edgeLabelBackground: "#0b1220"
 ---
 flowchart TD
     %% ════════════════ SOURCES ════════════════
@@ -136,24 +141,24 @@ flowchart TD
     SRC ==> INGEST ==> DOCINT ==> EXTRACT ==> RECON ==> KNOW ==> SERVE ==> IDE
     QA ==> RECON
 
-    %% ════════════════ MODERN PALETTE ════════════════
-    classDef src     fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
-    classDef ingest  fill:#f0f9ff,stroke:#0ea5e9,stroke-width:2px,color:#0c4a6e
-    classDef store   fill:#dbeafe,stroke:#2563eb,stroke-width:2.5px,color:#1e3a8a
-    classDef parse   fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#7c2d12
-    classDef ai      fill:#faf5ff,stroke:#9333ea,stroke-width:2.5px,color:#581c87
-    classDef db      fill:#ecfdf5,stroke:#059669,stroke-width:2.5px,color:#064e3b
-    classDef recon   fill:#fdf2f8,stroke:#db2777,stroke-width:2px,color:#831843
-    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:2.5px,color:#78350f
-    classDef warn    fill:#fee2e2,stroke:#dc2626,stroke-width:3px,color:#7f1d1d
-    classDef qa      fill:#fefce8,stroke:#ca8a04,stroke-width:2px,color:#713f12
-    classDef serve   fill:#f5f3ff,stroke:#7c3aed,stroke-width:2.5px,color:#4c1d95
-    classDef ide     fill:#0f172a,stroke:#6366f1,stroke-width:3px,color:#f8fafc
-    classDef obs     fill:#f8fafc,stroke:#475569,stroke-width:2px,stroke-dasharray:5 5,color:#1e293b
+    %% ════════════════ DARK-MODE GLOW PALETTE ════════════════
+    classDef src      fill:#0c2740,stroke:#38bdf8,stroke-width:2px,color:#e0f2fe
+    classDef ingest   fill:#0b253b,stroke:#0ea5e9,stroke-width:2px,color:#f0f9ff
+    classDef store    fill:#112c4f,stroke:#3b82f6,stroke-width:2.5px,color:#dbeafe
+    classDef parse    fill:#2a160a,stroke:#f97316,stroke-width:2px,color:#ffedd5
+    classDef ai       fill:#241043,stroke:#a855f7,stroke-width:2.5px,color:#f3e8ff
+    classDef db       fill:#082c1f,stroke:#10b981,stroke-width:2.5px,color:#d1fae5
+    classDef recon    fill:#3a0d24,stroke:#ec4899,stroke-width:2px,color:#fce7f3
+    classDef decision fill:#3a2606,stroke:#f59e0b,stroke-width:2.5px,color:#fef3c7
+    classDef warn     fill:#3b0a0a,stroke:#ef4444,stroke-width:3px,color:#fee2e2
+    classDef qa       fill:#332604,stroke:#eab308,stroke-width:2px,color:#fef9c3
+    classDef serve    fill:#1f1340,stroke:#8b5cf6,stroke-width:2.5px,color:#ede9fe
+    classDef ide      fill:#020617,stroke:#6366f1,stroke-width:3px,color:#f8fafc
+    classDef obs      fill:#111827,stroke:#64748b,stroke-width:2px,stroke-dasharray:5 5,color:#e2e8f0
 
     %% ════════════════ LINK STYLING ════════════════
-    linkStyle default stroke:#94a3b8,stroke-width:2px
-    linkStyle 0,1,2,3,4,5,6,7 stroke:#6366f1,stroke-width:3px
+    linkStyle default stroke:#64748b,stroke-width:2px
+    linkStyle 0,1,2,3,4,5,6,7 stroke:#818cf8,stroke-width:3px
 ```
 
 | Principle | How |
