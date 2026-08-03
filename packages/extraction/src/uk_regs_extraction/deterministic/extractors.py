@@ -41,6 +41,7 @@ def _normalize_text(text: str) -> str:
     """Normalise common PDF unicode artifacts to ASCII before regex extraction."""
     return text.translate(_UNICODE_MAP)
 
+
 # --- Measurements -----------------------------------------------------------
 _MEASUREMENT = re.compile(
     r"""
@@ -126,12 +127,7 @@ def extract_facts(text: str) -> DeterministicFacts:
     ]
     sections: list[str] = []
     for m in _SECTION.finditer(norm):
-        sec = (
-            m.group("prefix_num")
-            or m.group("letter")
-            or m.group("app")
-            or m.group("multi")
-        )
+        sec = m.group("prefix_num") or m.group("letter") or m.group("app") or m.group("multi")
         if sec:
             sections.append(sec)
     return DeterministicFacts(measurements=measurements, standards=standards, sections=sections)

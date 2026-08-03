@@ -50,6 +50,7 @@ from uk_regs_evals.metrics import (
 
 logger = logging.getLogger(__name__)
 
+
 # --------------------------------------------------------------------------- #
 #  Search backend protocol (so the retrieval harness can be unit-tested with
 #  a stub instead of the real MockBackend).
@@ -145,7 +146,9 @@ class ReconciliationHarness:
 
         for c in cases:
             new_rule = _rule_from_dict(c.new_rule, rule_id="new-rule")
-            corpus = [_rule_from_dict(c.corpus_rule, rule_id="corpus-rule")] if c.corpus_rule else []
+            corpus = (
+                [_rule_from_dict(c.corpus_rule, rule_id="corpus-rule")] if c.corpus_rule else []
+            )
 
             try:
                 outcomes, _ = rec.reconcile([new_rule], corpus, doc_id="eval-doc")
@@ -158,9 +161,7 @@ class ReconciliationHarness:
                 )
                 continue
 
-            cr = evaluate_reconciliation_case(
-                predicted, c.expected_decision, confidence=conf
-            )
+            cr = evaluate_reconciliation_case(predicted, c.expected_decision, confidence=conf)
             cr.case_id = c.id
             results.append(cr)
         return summarize("reconciliation", results)
@@ -231,8 +232,7 @@ class EvalReport:
         lines.append("|-------|-------|--------|----------|------------|")
         for r in self.all_reports():
             lines.append(
-                f"| {r.suite} | {r.total} | {r.passed} | "
-                f"{r.accuracy:.1%} | {r.mean_score:.3f} |"
+                f"| {r.suite} | {r.total} | {r.passed} | {r.accuracy:.1%} | {r.mean_score:.3f} |"
             )
         lines.append("")
         lines.append(f"**Overall accuracy:** {self.overall_accuracy:.1%}")

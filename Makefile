@@ -9,8 +9,8 @@ PDF     ?= data/sample.pdf
 TITLE   ?= "Approved Document B"
 VER     ?= "2026-ed1"
 
-.PHONY: help install up down status logs init-db reset \
-        ingest ingest-offline lint fmt test check clean \
+.PHONY: help install hooks up down status logs init-db reset \
+        ingest ingest-offline lint fmt test check ci clean \
         api api-mock mcp export-rules eval eval-offline eval-list
 
 help:  ## Show this help
@@ -22,6 +22,11 @@ help:  ## Show this help
 # --------------------------------------------------------------------------- #
 install:  ## Install/ sync all workspace packages via uv
 	uv sync
+
+hooks:  ## Install pre-commit hooks (run once after clone)
+	uv sync
+	uv run pre-commit install --install-hooks -t pre-commit -t pre-push
+	@echo "pre-commit hooks installed."
 
 .env: .env.example
 	@if [ ! -f .env ]; then cp .env.example .env && echo "Created .env from .env.example"; fi
@@ -74,7 +79,13 @@ fmt:  ## Format with ruff
 test:  ## Run the test suite
 	uv run pytest -q
 
-check: lint test  ## lint + test
+check: lint test  ## lint + test (local pre-commit equivalent)
+
+ci:  ## The exact quality gate that GitHub Actions runs (lint + test + evals)
+	UK_REGS_BACKEND=mock uv run ruff format --check .
+	UK_REGS_BACKEND=mock uv run ruff check .
+	UK_REGS_BACKEND=mock uv run pytest -q
+	UK_REGS_BACKEND=mock uv run uk-regs-eval run --no-retrieval
 
 # --------------------------------------------------------------------------- #
 #  Evaluation — golden-set regression gate (Phase 4A)

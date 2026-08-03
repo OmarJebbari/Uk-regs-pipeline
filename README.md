@@ -1,5 +1,10 @@
 # UK Regs Pipeline
 
+[![CI](https://github.com/OmarJebbari/Uk-regs-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OmarJebbari/Uk-regs-pipeline/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Evals: 100%](https://img.shields.io/badge/evals-100%25-brightgreen.svg)](#evaluation--quality-gate-phase-4a)
+
 > A **versioned, cited, GraphRAG context-intelligence pipeline** for UK Building Regulations.
 > Turns regulation PDFs (text + diagrams) into a single, queryable "current truth" that an
 > IDE assistant (Cursor / Claude / Copilot via MCP) can use to update code — with every claim
@@ -320,6 +325,12 @@ The evals are wired into the test suite (`tests/test_evals.py`), so `make check`
 (lint + test) is a **hard 100% accuracy gate**. A regression in any golden case
 fails the build before it reaches `main`.
 
+The same gate runs automatically on every push and pull request via
+**GitHub Actions** (`.github/workflows/ci.yml`). It uses `uv` with caching, runs
+the full lint + test + evals suite against the in-memory mock backend (no Docker,
+no API key required), and uploads the eval report as a build artifact. Check the
+badge at the top of this README for the live status.
+
 ---
 
 ## Configuration
@@ -345,11 +356,22 @@ make fmt          # ruff format + autofix
 make lint         # ruff check
 make test         # pytest
 make check        # lint + test (includes the evals golden gate)
+make ci           # the EXACT gate GitHub Actions runs (lint + test + evals, mock backend)
 make eval         # golden-set regression gate (100% accuracy)
 make eval-offline # same, but no DB (skips retrieval suite)
+make hooks        # install pre-commit hooks (ruff + pytest gate on every commit/push)
 make logs         # tail data-plane logs
 make reset        # ⚠ stop services and DELETE all volumes
 ```
+
+### Pre-commit hooks (optional but recommended)
+
+```bash
+make hooks   # installs ruff format/check + pytest-on-push via pre-commit
+```
+
+After this, every `git commit` auto-formats + lints, and every `git push` runs
+the full test suite locally — so a broken commit never reaches CI.
 
 ---
 
@@ -361,7 +383,10 @@ make reset        # ⚠ stop services and DELETE all volumes
 - [x] **Phase 4A** — **Evals harness + golden gate** (retrieval / reconciliation / extraction suites, deterministic metrics, `uk-regs-eval` CLI, 100% accuracy gate enforced in CI)
   - Unicode-normalising extractor (handles `mm²`, smart quotes, en/em dashes from PDFs)
   - Precision-calibrated reconciliation decisioning (text-similarity + parameter-equality driven, not raw candidate score)
-- [ ] **Phase 4B** — DeepEval/RAGAS LLM-judge integration, review UI, auth, observability
+- [ ] **Phase 4B** — Production hardening *(in progress)*
+  - [x] **CI/CD** — GitHub Actions quality gate (lint + test + evals, 100% accuracy), Dependabot, pre-commit hooks, line-ending hygiene
+  - [ ] DeepEval/RAGAS LLM-judge integration
+  - [ ] Review UI, auth, observability (OpenTelemetry + Langfuse)
 - [ ] **Phase 5** — Scheduling/source monitoring, hybrid search, dashboards
 
 ---

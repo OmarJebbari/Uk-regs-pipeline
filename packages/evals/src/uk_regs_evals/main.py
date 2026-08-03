@@ -119,9 +119,7 @@ def run(
         try:
             backend = _default_backend()
         except Exception as e:  # pragma: no cover - environment dependent
-            console.print(
-                f"[yellow]Search backend unavailable ({e}); skipping retrieval[/yellow]"
-            )
+            console.print(f"[yellow]Search backend unavailable ({e}); skipping retrieval[/yellow]")
             run_ret = False
 
     report = run_all(

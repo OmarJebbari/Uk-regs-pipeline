@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Lint + Tests + Evals Gate
+    runs-on: ubuntu-latest
+
+    env:
+      # Force the in-memory mock backend so the evals golden gate runs with
+      # zero infrastructure (no Postgres, no OpenAI key) in CI.
+      UK_REGS_BACKEND: mock
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Test suite (includes evals golden gate)
+        run: uv run pytest -q
+
+      - name: Run evals offline gate
+        run: uv run uk-regs-eval run --no-retrieval --out reports/eval.md
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: reports/eval.md
+          if-no-files-found: ignore

@@ -94,8 +94,7 @@ def _read_yaml(suite: SuiteName) -> dict[str, Any]:
     path = _GOLDEN_DIR / f"{suite}.yaml"
     if not path.exists():
         raise FileNotFoundError(
-            f"Golden dataset not found: {path}. "
-            f"Create it under evals/golden/{suite}.yaml."
+            f"Golden dataset not found: {path}. Create it under evals/golden/{suite}.yaml."
         )
     with path.open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
@@ -116,8 +115,7 @@ def load_cases(suite: SuiteName) -> list[Any]:
     """
     if suite not in _VALID_SUITES:
         raise ValueError(
-            f"Unknown suite: {suite!r}. "
-            f"Expected one of: {', '.join(sorted(_VALID_SUITES))}."
+            f"Unknown suite: {suite!r}. Expected one of: {', '.join(sorted(_VALID_SUITES))}."
         )
     data = _read_yaml(suite)
     raw_cases = data.get("cases", [])

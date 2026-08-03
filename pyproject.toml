@@ -34,8 +34,9 @@ members = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
-    "httpx>=0.27",   # required by FastAPI TestClient
-    "mcp>=1.0",      # required by the MCP server build test
+    "httpx>=0.27",      # required by FastAPI TestClient
+    "mcp>=1.0",         # required by the MCP server build test
+    "pre-commit>=3.7",  # local quality gate (see .pre-commit-config.yaml)
 ]
 
 [tool.uv.sources]

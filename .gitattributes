@@ -1,0 +1,31 @@
+# Normalize line endings to LF in the repo regardless of OS.
+# Git will check out CRLF on Windows for text files when core.autocrlf=true.
+* text=auto eol=lf
+
+# Specific binary types — never normalize
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary
+*.tar binary
+*.gz binary
+
+# YAML — enforce LF (avoid "found \r\n" parser warnings in CI)
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Makefiles require literal tabs
+Makefile text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Dockerfile
+Dockerfile text eol=lf

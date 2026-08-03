@@ -92,9 +92,7 @@ class TestReconciliationMetrics:
         assert cr.score == 0.0
 
     def test_confidence_recorded_as_score(self):
-        cr = evaluate_reconciliation_case(
-            "partial", "partial", confidence=0.72
-        )
+        cr = evaluate_reconciliation_case("partial", "partial", confidence=0.72)
         assert cr.passed
         assert cr.score == pytest.approx(0.72)
 
@@ -207,6 +205,7 @@ class _StubHit:
         @dataclass(slots=True)
         class _R:
             rule_id: str
+
         return _R(self.rule_id)
 
 
@@ -253,9 +252,7 @@ class TestRetrievalHarness:
         # Every negative case (empty expected_rule_ids) must pass.
         neg = [c for c in load_cases("retrieval") if not c.expected_rule_ids]
         if neg:
-            neg_results = [
-                r for r in report.results for c in neg if r.case_id == c.id
-            ]
+            neg_results = [r for r in report.results for c in neg if r.case_id == c.id]
             assert all(r.passed for r in neg_results)
 
     def test_backend_failure_marked_as_failure(self):
@@ -298,8 +295,7 @@ class TestGoldenRun:
 
         report = run_all(backend=get_backend())
         assert report.overall_accuracy == 1.0, (
-            f"Golden gate failed: {report.overall_accuracy:.1%} — "
-            "see failures in the report."
+            f"Golden gate failed: {report.overall_accuracy:.1%} — see failures in the report."
         )
         assert report.passes_gate(1.0)
 
