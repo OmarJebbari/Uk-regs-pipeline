@@ -179,15 +179,18 @@ uk-regs-pipeline/
 │  ├─ core/           # types, config, enums, errors, ID helpers (pydantic-settings)
 │  ├─ extraction/     # PDF parsing, deterministic extractors, LLM rule extractor, VLM figures
 │  ├─ knowledge/      # object store, relational + graph repos, embeddings, schema.sql
-│  └─ reconciliation/ # matchers + supersession engine (the "update memory" heart)
+│  ├─ reconciliation/ # matchers + supersession engine (the "update memory" heart)
+│  └─ evals/          # golden datasets, metrics, harnesses, `uk-regs-eval` CLI
 ├─ pipelines/
 │  └─ ingest/         # orchestrator + CLI (`uk-regs-ingest`)
 ├─ apps/              # FastAPI context API (`uk-regs-api`) + MCP server (`uk-regs-mcp`)
+├─ evals/
+│  └─ golden/         # golden datasets: extraction · reconciliation · retrieval (YAML)
 ├─ infra/
 │  ├─ compose/        # docker-compose: Postgres+pgvector, Neo4j, MinIO
 │  ├─ docker/         # (Dockerfiles)
 │  └─ terraform/      # (infra-as-code)
-├─ tests/
+├─ tests/             # integration + evals golden-gate tests
 ├─ data/              # sample PDFs (gitignored)
 ├─ pyproject.toml     # uv workspace root
 ├─ Makefile
@@ -255,6 +258,15 @@ MCP wiring for Cursor (`~/.cursor/mcp.json`):
 ```
 Then ask Cursor/Claude: *"check the design intent for a 3-storey residential escape route"* — it calls `check_design_intent`, returns cited rules, and generates code that references `rule_id` + source page.
 
+### 6. Run the evals (golden gate)
+```bash
+make eval          # all suites vs live backend (Postgres if up, else mock)
+make eval-offline  # no DB needed — skips retrieval, writes reports/eval.md
+make eval-list     # just list the golden cases
+```
+The golden gate enforces **100% accuracy** across three suites (extraction,
+reconciliation, retrieval). Run it before every PR — it's wired into `make check`.
+
 ---
 
 ## How "memory + update" works
@@ -276,6 +288,40 @@ Old versions are **never deleted** — they remain queryable for audit history.
 
 ---
 
+## Evaluation & quality gate (Phase 4A)
+
+Because this is compliance-critical, the pipeline ships a **golden-set regression harness**
+that blocks a commit if accuracy drops below 100%.
+
+### The three suites (`evals/golden/`)
+
+| Suite | YAML | What it checks |
+|---|---|---|
+| **Extraction** | `extraction.yaml` | Deterministic extractors pull the right typed facts (dimensions, standards refs, section IDs) from raw PDF text — incl. unicode edge cases (`mm²`, smart quotes, en/em dashes). |
+| **Reconciliation** | `reconciliation.yaml` | The engine pairs new vs old rules into the correct decision — `match` / `partial` (amended) / `novel` (added) / `conflict` (review) — driven by text-similarity + parameter-equality, not raw candidate scores. |
+| **Retrieval** | `retrieval.yaml` | The context-serving layer returns the right cited rules for a design-intent query. |
+
+### CLI
+
+```bash
+uv run uk-regs-eval run                                       # all suites, auto backend
+uv run uk-regs-eval run --no-retrieval --out reports/eval.md  # offline markdown report
+uv run uk-regs-eval list                                      # list golden cases
+```
+
+`UK_REGS_BACKEND` selects the backend for both the API and the evals:
+- **`auto`** *(default)* — uses Postgres if the services are up, otherwise falls back to an in-memory mock.
+- **`mock`** — forces the in-memory mock (no Docker needed; great for CI).
+- **`postgres`** — forces the live Postgres + Neo4j backend.
+
+### CI gate
+
+The evals are wired into the test suite (`tests/test_evals.py`), so `make check`
+(lint + test) is a **hard 100% accuracy gate**. A regression in any golden case
+fails the build before it reaches `main`.
+
+---
+
 ## Configuration
 
 All config is 12-factor via `.env` (see `.env.example`), parsed by
@@ -288,18 +334,21 @@ All config is 12-factor via `.env` (see `.env.example`), parsed by
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | 1536-dim OpenAI embeddings |
 | `CONFIDENCE_THRESHOLD` | `0.85` | Below this → route to human review |
 | `RECONCILIATION_TOP_K` | `5` | Candidates per new rule during matching |
+| `UK_REGS_BACKEND` | `auto` | Backend for API + evals: `auto` (Postgres if up, else mock) / `mock` / `postgres` |
 
 ---
 
 ## Development
 
 ```bash
-make fmt      # ruff format + autofix
-make lint     # ruff check
-make test     # pytest
-make check    # lint + test
-make logs     # tail data-plane logs
-make reset    # ⚠ stop services and DELETE all volumes
+make fmt          # ruff format + autofix
+make lint         # ruff check
+make test         # pytest
+make check        # lint + test (includes the evals golden gate)
+make eval         # golden-set regression gate (100% accuracy)
+make eval-offline # same, but no DB (skips retrieval suite)
+make logs         # tail data-plane logs
+make reset        # ⚠ stop services and DELETE all volumes
 ```
 
 ---
