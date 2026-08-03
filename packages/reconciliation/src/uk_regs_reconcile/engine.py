@@ -17,8 +17,7 @@ import logging
 from dataclasses import dataclass, field
 
 from uk_regs_core import Decision, Rule, RuleDelta
-from uk_regs_core.ids import change_set_id, now_utc
-
+from uk_regs_core.ids import change_set_id
 from uk_regs_extraction.llm.client import LLMClient
 
 from uk_regs_reconcile.matchers import EmbeddingMatcher, Matcher, RuleMatcher, text_similarity
@@ -31,12 +30,15 @@ logger = logging.getLogger(__name__)
 class ReconcilerConfig:
     """Thresholds tuned for high precision in a compliance-critical domain."""
 
-    # Above this score -> very likely the same rule
-    match_threshold: float = 0.92
-    # Between amended_min and match_threshold -> amended (partial)
-    amended_threshold: float = 0.70
-    # Text-similarity required to even consider a partial/match decision
-    text_match_floor: float = 0.60
+    # Minimum candidate score to consider a rule "related" at all. Below this
+    # the candidate is treated as noise and the rule is NOVEL.
+    candidate_floor: float = 0.30
+    # Text similarity at/above which two related rules are the SAME rule (MATCH).
+    # 0.92 ≈ "only whitespace/punctuation differs".
+    text_match_threshold: float = 0.92
+    # Text similarity at/above which two related rules are an AMENDMENT (PARTIAL).
+    # Between candidate_floor and text_match_threshold -> PARTIAL.
+    text_partial_threshold: float = 0.55
     # Overall confidence below which we route to human review
     review_confidence: float = 0.75
     # Use the LLM only when deterministic decision confidence is below this
@@ -182,44 +184,50 @@ class Reconciler:
     ) -> ReconcileResult | None:
         """
         Try to decide without an LLM. Returns None if it cannot decide confidently.
+
+        Decision model (calibrated for precision):
+          - candidate score is only a *plausibility gate* (is this rule related?);
+          - the actual MATCH vs PARTIAL decision is driven by text similarity and
+            parameter equality, which are the true semantic signals. This keeps the
+            engine correct even when only the deterministic RuleMatcher runs (which
+            caps candidate scores well below 1.0).
         """
-        # Same rule_id -> exact re-extraction (MATCH)
-        if new_rule.rule_id == old.rule_id:
-            text_sim = text_similarity(new_rule.normalized_form, old.normalized_form)
-            if text_sim >= self.config.match_threshold:
+        # Candidate too weak to be related -> caller treats as novel.
+        if candidate_score < self.config.candidate_floor:
+            return None
+
+        text_sim = text_similarity(new_rule.normalized_form, old.normalized_form)
+        params_match = new_rule.parameters == old.parameters
+
+        # Near-identical text: MATCH if params also agree, else PARTIAL (amended).
+        if text_sim >= self.config.text_match_threshold:
+            if params_match:
                 return ReconcileResult(
                     delta=to_delta(
                         new_rule_id=new_rule.rule_id,
                         matched_rule_id=old.rule_id,
                         decision=Decision.MATCH,
-                        confidence=min(1.0, 0.7 + 0.3 * text_sim),
-                        rationale="Same rule_id and near-identical text.",
+                        confidence=min(1.0, 0.5 + 0.5 * text_sim),
+                        rationale="Near-identical text and parameters.",
                         diff_summary="Unchanged.",
                     ),
                     decided_via="deterministic",
                 )
-
-        # Strong candidate score + high text similarity -> decide textually
-        text_sim = text_similarity(new_rule.normalized_form, old.normalized_form)
-
-        if candidate_score >= self.config.match_threshold and text_sim >= self.config.match_threshold:
+            diff = self._param_diff(new_rule, old)
             return ReconcileResult(
                 delta=to_delta(
                     new_rule_id=new_rule.rule_id,
                     matched_rule_id=old.rule_id,
-                    decision=Decision.MATCH,
-                    confidence=min(1.0, 0.5 * candidate_score + 0.5 * text_sim),
-                    rationale="High candidate score and text similarity.",
-                    diff_summary="Unchanged.",
+                    decision=Decision.PARTIAL,
+                    confidence=min(0.95, 0.5 + 0.4 * text_sim),
+                    rationale="Near-identical text but parameters changed.",
+                    diff_summary=diff,
                 ),
                 decided_via="deterministic",
             )
 
-        # Amended: clearly related but text differs
-        if (
-            candidate_score >= self.config.amended_threshold
-            and text_sim >= self.config.text_match_floor
-        ):
+        # Related rule whose text has drifted -> amendment (PARTIAL).
+        if text_sim >= self.config.text_partial_threshold:
             diff = self._param_diff(new_rule, old)
             return ReconcileResult(
                 delta=to_delta(
@@ -239,7 +247,6 @@ class Reconciler:
     def _llm_decide(self, new_rule: Rule, candidates: list[Candidate]) -> ReconcileResult | None:
         """Ask the LLM to classify the relationship. Structured output for safety."""
         from pydantic import BaseModel, Field
-
         from uk_regs_core import Decision as CoreDecision
 
         class LLMVerdict(BaseModel):

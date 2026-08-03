@@ -10,14 +10,14 @@ Run:
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 os.environ.setdefault("UK_REGS_BACKEND", "mock")
 
 # ---- Phase 1: core + extraction ------------------------------------------- #
 from uk_regs_core.enums import Category, Decision, RuleStatus  # noqa: E402
-from uk_regs_core.models import Citation, Rule  # noqa: E402
 from uk_regs_core.ids import rule_id  # noqa: E402
+from uk_regs_core.models import Citation, Rule  # noqa: E402
 from uk_regs_extraction.deterministic.extractors import extract_facts  # noqa: E402
 from uk_regs_reconcile.engine import Reconciler  # noqa: E402
 
@@ -42,7 +42,7 @@ def _build_rule(
         parameters=parameters or {},
         references=references or [],
         valid_from=date(2025, 1, 1),
-        recorded_at=datetime.now(timezone.utc),
+        recorded_at=datetime.now(UTC),
         status=RuleStatus.ACTIVE,
         confidence=0.95,
         extraction_method="hybrid",
@@ -89,13 +89,17 @@ def test_phase1_to_phase2_reconciliation_match_and_amend():
     """
     # Existing corpus rule
     old = _build_rule(
-        "ADB", "2.3", "Min corridor width shall be 1,000 mm.",
+        "ADB",
+        "2.3",
+        "Min corridor width shall be 1,000 mm.",
         parameters={"measurement_mm": 1000.0},
     )
 
     # 1) Near-identical re-extraction -> MATCH
     same = _build_rule(
-        "ADB", "2.3", "Min corridor width shall be 1,000 mm.",
+        "ADB",
+        "2.3",
+        "Min corridor width shall be 1,000 mm.",
         parameters={"measurement_mm": 1000.0},
     )
     rec = Reconciler(llm=None)
@@ -104,7 +108,9 @@ def test_phase1_to_phase2_reconciliation_match_and_amend():
 
     # 2) Amended width -> should be PARTIAL (related, text differs)
     amended = _build_rule(
-        "ADB", "2.3", "Min corridor width shall be 1,200 mm.",
+        "ADB",
+        "2.3",
+        "Min corridor width shall be 1,200 mm.",
         parameters={"measurement_mm": 1200.0},
     )
     results, _ = rec.reconcile([amended], corpus=[old], doc_id="ADB")
@@ -118,7 +124,6 @@ def test_phase1_to_phase2_reconciliation_match_and_amend():
 def test_phase3_api_endpoints():
     """The FastAPI serves all Phase-3 endpoints from the mock backend."""
     from fastapi.testclient import TestClient
-
     from uk_regs_api.app import app
 
     client = TestClient(app)
@@ -156,7 +161,9 @@ def test_full_pipeline_extrac_to_serve():
     # 1) Simulate the OLD corpus (previous edition of the regulation)
     old_corpus = [
         _build_rule(
-            "ADB", "B1", "Staircase headroom shall be at least 2,000 mm.",
+            "ADB",
+            "B1",
+            "Staircase headroom shall be at least 2,000 mm.",
             parameters={"measurement_mm": 2000.0},
         )
     ]
@@ -167,7 +174,9 @@ def test_full_pipeline_extrac_to_serve():
     assert facts.has_any
 
     new_rule = _build_rule(
-        "ADB", "B1", new_text,
+        "ADB",
+        "B1",
+        new_text,
         parameters=facts.as_parameters(),
     )
 
@@ -183,7 +192,6 @@ def test_full_pipeline_extrac_to_serve():
 
     # 4) The API still serves rules (mock backend), proving Phase 3 is wired
     from fastapi.testclient import TestClient
-
     from uk_regs_api.app import app
 
     client = TestClient(app)

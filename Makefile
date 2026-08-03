@@ -11,7 +11,7 @@ VER     ?= "2026-ed1"
 
 .PHONY: help install up down status logs init-db reset \
         ingest ingest-offline lint fmt test check clean \
-        api api-mock mcp export-rules
+        api api-mock mcp export-rules eval eval-offline eval-list
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -75,6 +75,18 @@ test:  ## Run the test suite
 	uv run pytest -q
 
 check: lint test  ## lint + test
+
+# --------------------------------------------------------------------------- #
+#  Evaluation — golden-set regression gate (Phase 4A)
+# --------------------------------------------------------------------------- #
+eval:  ## Run all eval suites against the live backend (Postgres if up, else mock)
+	UK_REGS_BACKEND=auto uv run uk-regs-eval run
+
+eval-offline:  ## Run evals without the retrieval suite (no DB required)
+	UK_REGS_BACKEND=mock uv run uk-regs-eval run --no-retrieval --out reports/eval.md
+
+eval-list:  ## List the golden cases without running them
+	uv run uk-regs-eval list
 
 # --------------------------------------------------------------------------- #
 #  Context API + MCP server (Phase 3)

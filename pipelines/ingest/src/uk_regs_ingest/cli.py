@@ -25,7 +25,6 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.table import Table
-
 from uk_regs_core import DocumentType, get_settings
 from uk_regs_extraction.llm.client import LLMClient, get_llm_client
 from uk_regs_knowledge.embeddings import Embedder, get_embedder
@@ -53,7 +52,9 @@ def _build_pipeline(*, skip_llm: bool, skip_embed: bool) -> IngestPipeline:
         try:
             llm = get_llm_client(settings)
         except Exception as e:
-            console.print(f"[yellow]LLM unavailable ({e}); continuing in deterministic-only mode[/yellow]")
+            console.print(
+                f"[yellow]LLM unavailable ({e}); continuing in deterministic-only mode[/yellow]"
+            )
             llm = None
 
     embedder: Embedder | None = None
@@ -61,7 +62,9 @@ def _build_pipeline(*, skip_llm: bool, skip_embed: bool) -> IngestPipeline:
         try:
             embedder = get_embedder(settings)
         except Exception as e:
-            console.print(f"[yellow]Embedder unavailable ({e}); rules stored without vectors[/yellow]")
+            console.print(
+                f"[yellow]Embedder unavailable ({e}); rules stored without vectors[/yellow]"
+            )
             embedder = None
 
     return IngestPipeline(settings=settings, llm=llm, embedder=embedder)

@@ -12,12 +12,9 @@ run with deterministic extraction + reconciliation without a Postgres backend.
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from uk_regs_core import ConfigError, Settings, get_settings
-
-if TYPE_CHECKING:  # only for type hints; never imported at runtime
-    from psycopg.pool import SimpleConnectionPool
 
 _pool: Any = None  # SimpleConnectionPool | None
 _lock = threading.Lock()
@@ -28,9 +25,7 @@ def _import_pool_cls() -> Any:
     try:
         from psycopg.pool import SimpleConnectionPool
     except ImportError as e:  # pragma: no cover - depends on env
-        raise ConfigError(
-            "psycopg/pool not available. Install 'psycopg[binary,pool]'."
-        ) from e
+        raise ConfigError("psycopg/pool not available. Install 'psycopg[binary,pool]'.") from e
     return SimpleConnectionPool
 
 
@@ -44,8 +39,7 @@ def get_pool(settings: Settings | None = None) -> Any:
         s = settings or get_settings()
         if not s.postgres_dsn:
             raise ConfigError("POSTGRES_DSN is not set")
-        SimpleConnectionPool = _import_pool_cls()
-        _pool = SimpleConnectionPool(
+        _pool = _import_pool_cls()(
             minconn=2,
             maxconn=10,
             dsn=s.postgres_dsn,
@@ -74,8 +68,7 @@ def init_schema(settings: Settings | None = None) -> None:
             .joinpath("schema.sql")
             .read_text(encoding="utf-8")
         )
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(schema)
+        with conn, conn.cursor() as cur:
+            cur.execute(schema)
     finally:
         pool.putconn(conn)

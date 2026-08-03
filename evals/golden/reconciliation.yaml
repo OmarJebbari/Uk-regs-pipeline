@@ -1,0 +1,56 @@
+---
+# Golden set for reconciliation evaluation.
+# Each case defines a NEW rule and an EXISTING corpus rule, plus the expected
+# reconciliation decision (match | partial | novel | conflict) the engine
+# SHOULD produce. Tests precision of the "update memory" logic.
+
+suite: reconciliation
+description: >
+  New rule vs. existing corpus rule, with the expected decision the
+  reconciliation engine must reach deterministically (no LLM).
+
+cases:
+  - id: recon-001
+    description: "Identical re-extraction of the same rule -> MATCH."
+    new_rule:
+      section_path: "B1/2.3"
+      text: "Fire doors protecting a single stairway shall have a minimum fire resistance of 30 minutes."
+      parameters: {min_resistance_min: 30}
+    corpus_rule:
+      section_path: "B1/2.3"
+      text: "Fire doors protecting a single stairway shall have a minimum fire resistance of 30 minutes."
+      parameters: {min_resistance_min: 30}
+    expected_decision: match
+
+  - id: recon-002
+    description: "Same clause, updated numeric value -> PARTIAL (amended)."
+    new_rule:
+      section_path: "B1/2.3"
+      text: "Fire doors protecting a single stairway shall have a minimum fire resistance of 60 minutes."
+      parameters: {min_resistance_min: 60}
+    corpus_rule:
+      section_path: "B1/2.3"
+      text: "Fire doors protecting a single stairway shall have a minimum fire resistance of 30 minutes."
+      parameters: {min_resistance_min: 30}
+    expected_decision: partial
+
+  - id: recon-003
+    description: "Brand-new topic not in corpus -> NOVEL."
+    new_rule:
+      section_path: "F1/1.4"
+      text: "Each habitable room shall have background ventilators with a total equivalent area of not less than 5,000 mm²."
+      parameters: {min_area_mm2: 5000}
+    corpus_rule: null
+    expected_decision: novel
+
+  - id: recon-004
+    description: "Escape route width changed from 1000mm to 1200mm -> PARTIAL."
+    new_rule:
+      section_path: "B1/3.2"
+      text: "The minimum clear width of an escape route shall be 1,200 mm for buildings with more than 60 occupants."
+      parameters: {min_width_mm: 1200}
+    corpus_rule:
+      section_path: "B1/3.2"
+      text: "The minimum clear width of an escape route shall be 1,000 mm for buildings with more than 60 occupants."
+      parameters: {min_width_mm: 1000}
+    expected_decision: partial

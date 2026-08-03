@@ -8,23 +8,21 @@ Vector operations use pgvector's `<=>` cosine distance operator.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
-from typing import Iterator
 
 from uk_regs_core import (
-    BoundingBox,
     Category,
     ChangeSet,
     Citation,
     Document,
     DocumentVersion,
     Figure,
+    FigureElement,
     Rule,
     RuleDelta,
     RuleStatus,
-    Settings,
-    get_settings,
 )
 
 from uk_regs_knowledge.relational.connection import get_pool
@@ -173,7 +171,7 @@ class RuleRepository:
                     valid_to        = EXCLUDED.valid_to,
                     status          = EXCLUDED.status,
                     confidence      = EXCLUDED.confidence
-                    {', embedding = EXCLUDED.embedding' if embedding else ''}
+                    {", embedding = EXCLUDED.embedding" if embedding else ""}
                 """,
                 params,
             )
@@ -260,7 +258,7 @@ class RuleRepository:
 
     def _row_to_rule(self, row) -> Rule:
         cols = [d[0] for d in row.cursor.description]
-        r = dict(zip(cols, row))
+        r = dict(zip(cols, row, strict=False))
         return Rule(
             rule_id=r["rule_id"],
             doc_id=r["doc_id"],
@@ -270,7 +268,9 @@ class RuleRepository:
             title=r["title"],
             text=r["text"],
             normalized_form=r["normalized_form"],
-            parameters=r["parameters"] if isinstance(r["parameters"], dict) else json.loads(r["parameters"]),
+            parameters=r["parameters"]
+            if isinstance(r["parameters"], dict)
+            else json.loads(r["parameters"]),
             references=list(r["references"]),
             valid_from=r["valid_from"],
             valid_to=r["valid_to"],
@@ -366,10 +366,7 @@ class ChangeSetRepository:
         from uk_regs_core.enums import Decision
 
         if status:
-            sql = (
-                "SELECT * FROM change_sets WHERE status = %s "
-                "ORDER BY created_at DESC LIMIT %s"
-            )
+            sql = "SELECT * FROM change_sets WHERE status = %s ORDER BY created_at DESC LIMIT %s"
             params: tuple = (status, limit)
         else:
             sql = "SELECT * FROM change_sets ORDER BY created_at DESC LIMIT %s"
@@ -381,7 +378,7 @@ class ChangeSetRepository:
             cs_cols = [d[0] for d in cur.description]
             result: list[ChangeSet] = []
             for cs_row in cs_rows:
-                csd = dict(zip(cs_cols, cs_row))
+                csd = dict(zip(cs_cols, cs_row, strict=False))
                 cur.execute(
                     "SELECT * FROM rule_deltas WHERE change_set_id = %s "
                     "ORDER BY decision, new_rule_id",
@@ -389,17 +386,19 @@ class ChangeSetRepository:
                 )
                 d_rows = cur.fetchall()
                 d_cols = [d[0] for d in cur.description]
-                deltas = [
-                    RuleDelta(
-                        new_rule_id=dict(zip(d_cols, r))["new_rule_id"],
-                        matched_rule_id=dict(zip(d_cols, r))["matched_rule_id"],
-                        decision=Decision(dict(zip(d_cols, r))["decision"]),
-                        confidence=float(dict(zip(d_cols, r))["confidence"]),
-                        rationale=dict(zip(d_cols, r))["rationale"],
-                        diff_summary=dict(zip(d_cols, r))["diff_summary"],
+                deltas: list[RuleDelta] = []
+                for d_row in d_rows:
+                    dr = dict(zip(d_cols, d_row, strict=False))
+                    deltas.append(
+                        RuleDelta(
+                            new_rule_id=dr["new_rule_id"],
+                            matched_rule_id=dr["matched_rule_id"],
+                            decision=Decision(dr["decision"]),
+                            confidence=float(dr["confidence"]),
+                            rationale=dr["rationale"],
+                            diff_summary=dr["diff_summary"],
+                        )
                     )
-                    for r in d_rows
-                ]
                 result.append(
                     ChangeSet(
                         change_set_id=csd["change_set_id"],
@@ -414,3 +413,106 @@ class ChangeSetRepository:
                     )
                 )
         return result
+
+
+# --------------------------------------------------------------------------- #
+#  Figures
+# --------------------------------------------------------------------------- #
+class FigureRepository:
+    """CRUD for diagrams linked to rules (stored in the ``figures`` table)."""
+
+    def __init__(self, pool=None) -> None:
+        self._pool = pool or get_pool()
+
+    @contextmanager
+    def _conn(self) -> Iterator:
+        conn = self._pool.getconn()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self._pool.putconn(conn)
+
+    def save(self, fig: Figure) -> None:
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO figures (
+                    figure_id, doc_id, version, page, caption, image_key,
+                    description, elements, illustrates_rules,
+                    citation_page, citation_raw_text
+                ) VALUES (
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                )
+                ON CONFLICT (figure_id) DO UPDATE SET
+                    caption            = EXCLUDED.caption,
+                    image_key          = EXCLUDED.image_key,
+                    description        = EXCLUDED.description,
+                    elements           = EXCLUDED.elements,
+                    illustrates_rules  = EXCLUDED.illustrates_rules,
+                    citation_page      = EXCLUDED.citation_page,
+                    citation_raw_text  = EXCLUDED.citation_raw_text
+                """,
+                (
+                    fig.figure_id,
+                    fig.doc_id,
+                    fig.version,
+                    fig.page,
+                    fig.caption,
+                    fig.image_key,
+                    fig.description,
+                    json.dumps([e.model_dump() for e in fig.elements]),
+                    fig.illustrates_rule_ids,
+                    fig.citation.page,
+                    fig.citation.raw_text,
+                ),
+            )
+
+    def get_by_id(self, figure_id: str) -> Figure | None:
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute("SELECT * FROM figures WHERE figure_id = %s", (figure_id,))
+            row = cur.fetchone()
+        return self._row_to_figure(row, cur) if row else None
+
+    def list_for_rule(self, rule_id: str) -> list[Figure]:
+        """All figures whose ``illustrates_rules`` array contains ``rule_id``."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM figures
+                WHERE %s = ANY (illustrates_rules)
+                ORDER BY page
+                """,
+                (rule_id,),
+            )
+            rows = cur.fetchall()
+        return [self._row_to_figure(r, cur) for r in rows]
+
+    def _row_to_figure(self, row, cur) -> Figure:
+        cols = [d[0] for d in cur.description]
+        r = dict(zip(cols, row, strict=False))
+        raw_elements = r.get("elements") or []
+        if isinstance(raw_elements, str):
+            raw_elements = json.loads(raw_elements)
+        elements = [FigureElement(**e) for e in raw_elements]
+        return Figure(
+            figure_id=r["figure_id"],
+            doc_id=r["doc_id"],
+            version=r["version"],
+            page=r["page"],
+            caption=r.get("caption"),
+            image_key=r["image_key"],
+            description=r["description"],
+            elements=elements,
+            illustrates_rule_ids=list(r.get("illustrates_rules") or []),
+            citation=Citation(
+                doc_id=r["doc_id"],
+                version=r["version"],
+                page=r["citation_page"],
+                raw_text=r.get("citation_raw_text") or "",
+                url=None,
+            ),
+        )

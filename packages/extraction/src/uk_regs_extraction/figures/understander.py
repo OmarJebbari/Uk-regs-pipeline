@@ -11,15 +11,12 @@ The description + raw image are both stored, so the IDE can retrieve either.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
-
-from uk_regs_core import BoundingBox, Citation, Figure, FigureElement
+from uk_regs_core import Citation, Figure, FigureElement
 from uk_regs_core.ids import ulid_like
 
 from uk_regs_extraction.llm.client import LLMClient
-
 
 VLM_SYSTEM_PROMPT = """You are analysing a figure from a UK Building Regulations document.
 Describe what the diagram shows and extract any explicit constraints shown.

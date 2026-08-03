@@ -159,9 +159,7 @@ class Rule(BaseModel):
             return False
         if self.valid_from > today:
             return False
-        if self.valid_to is not None and today >= self.valid_to:
-            return False
-        return True
+        return self.valid_to is None or today < self.valid_to
 
 
 # --------------------------------------------------------------------------- #

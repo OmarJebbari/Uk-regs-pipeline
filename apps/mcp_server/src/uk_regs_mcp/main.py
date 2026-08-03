@@ -62,7 +62,9 @@ def _call(method: str, path: str, **params: Any) -> Any:
             import httpx
 
             with httpx.Client(base_url=base, timeout=10.0) as client:
-                resp = client.request(method, path, params={k: v for k, v in params.items() if v is not None})
+                resp = client.request(
+                    method, path, params={k: v for k, v in params.items() if v is not None}
+                )
                 resp.raise_for_status()
                 return resp.json()
         except Exception:
@@ -71,12 +73,25 @@ def _call(method: str, path: str, **params: Any) -> Any:
     # In-process fallback (uses the same backend selection as the API)
     backend = get_backend()
     if path.startswith("/search"):
-        return {"query": params.get("q", ""), "hits": [h.to_dict() for h in backend.search(params.get("q", ""), top_k=int(params.get("top_k", 10)))]}
+        return {
+            "query": params.get("q", ""),
+            "hits": [
+                h.to_dict()
+                for h in backend.search(params.get("q", ""), top_k=int(params.get("top_k", 10)))
+            ],
+        }
     if path.startswith("/current"):
         rules = backend.get_current(topic=params.get("topic"), category=params.get("category"))
         return {"rules": [_r_to_dict(r) for r in rules]}
     if path.startswith("/changes"):
-        return {"change_sets": [_cs_to_dict(c) for c in backend.list_changes(status=params.get("status"), limit=int(params.get("limit", 50)))]}
+        return {
+            "change_sets": [
+                _cs_to_dict(c)
+                for c in backend.list_changes(
+                    status=params.get("status"), limit=int(params.get("limit", 50))
+                )
+            ]
+        }
     if path.startswith("/export/markdown"):
         return backend_diff_export(backend)
     return {"error": f"unsupported path {path}"}
@@ -145,9 +160,7 @@ def _cs_to_dict(cs) -> dict:
 def build_server():  # type: ignore[no-untyped-def]
     """Build and return the FastMCP server (requires `mcp` installed)."""
     if FastMCP is None:
-        raise RuntimeError(
-            "MCP SDK not installed. Run: uv pip install mcp  (or pip install mcp)"
-        )
+        raise RuntimeError("MCP SDK not installed. Run: uv pip install mcp  (or pip install mcp)")
 
     server = FastMCP("uk-regs")
 
@@ -208,9 +221,12 @@ def build_server():  # type: ignore[no-untyped-def]
         rules = res.get("rules", [])
         if not rules:
             return "No current rules match the filters."
-        out = [f"# {len(rules)} current rule(s)" +
-               (f" for topic '{topic}'" if topic else "") +
-               (f" in category '{category}'" if category else "") + "\n"]
+        out = [
+            f"# {len(rules)} current rule(s)"
+            + (f" for topic '{topic}'" if topic else "")
+            + (f" in category '{category}'" if category else "")
+            + "\n"
+        ]
         for r in rules:
             out.append(
                 f"- **{r.get('title', r.get('rule_id'))}** (`{r.get('rule_id')}`): "
@@ -295,8 +311,10 @@ def build_server():  # type: ignore[no-untyped-def]
         hits = res.get("hits", [])
         if not hits:
             return f"No regulations found relevant to intent: '{intent}'."
-        out = [f"# Design-intent check: '{intent}'\n",
-               f"_{len(hits)} relevant regulation(s). Cite these when implementing._\n"]
+        out = [
+            f"# Design-intent check: '{intent}'\n",
+            f"_{len(hits)} relevant regulation(s). Cite these when implementing._\n",
+        ]
         for i, h in enumerate(hits, 1):
             r = h.get("rule", {})
             c = h.get("citation", {})
@@ -306,7 +324,9 @@ def build_server():  # type: ignore[no-untyped-def]
                 f"- **Parameters:** `{json.dumps(r.get('parameters', {}))}`\n"
                 f"- **Citation:** {c.get('doc_id')} {c.get('version')} p.{c.get('page')}\n"
             )
-        out.append("\n_Match every applicable parameter in code; attach the rule_id + citation in comments._")
+        out.append(
+            "\n_Match every applicable parameter in code; attach the rule_id + citation in comments._"
+        )
         return "\n".join(out)
 
     return server

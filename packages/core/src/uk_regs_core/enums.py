@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class DocumentType(str, Enum):
+class DocumentType(StrEnum):
     APPROVED_DOCUMENT = "approved_document"
     TECHNICAL_HANDBOOK = "technical_handbook"
     BRITISH_STANDARD = "british_standard"
@@ -13,7 +13,7 @@ class DocumentType(str, Enum):
     OTHER = "other"
 
 
-class Category(str, Enum):
+class Category(StrEnum):
     FIRE = "fire"
     STRUCTURE = "structure"
     VENTILATION = "ventilation"
@@ -25,14 +25,14 @@ class Category(str, Enum):
     OTHER = "other"
 
 
-class RuleStatus(str, Enum):
+class RuleStatus(StrEnum):
     PROPOSED = "proposed"
     ACTIVE = "active"
     SUPERSEDED = "superseded"
     WITHDRAWN = "withdrawn"
 
 
-class BlockType(str, Enum):
+class BlockType(StrEnum):
     TEXT = "text"
     HEADING = "heading"
     TABLE_CELL = "table_cell"
@@ -43,16 +43,16 @@ class BlockType(str, Enum):
     PAGE_FOOTER = "page_footer"
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     """Reconciliation decisions."""
 
-    MATCH = "match"        # unchanged
-    PARTIAL = "partial"    # amended -> supersede old
-    NOVEL = "novel"        # new rule
+    MATCH = "match"  # unchanged
+    PARTIAL = "partial"  # amended -> supersede old
+    NOVEL = "novel"  # new rule
     CONFLICT = "conflict"  # contradictory -> human review
 
 
-class ChangeSetStatus(str, Enum):
+class ChangeSetStatus(StrEnum):
     PROPOSED = "proposed"
     VALIDATED = "validated"
     APPLIED = "applied"

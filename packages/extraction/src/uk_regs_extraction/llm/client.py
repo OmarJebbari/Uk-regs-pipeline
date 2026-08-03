@@ -12,7 +12,6 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
-
 from uk_regs_core import Settings, get_settings
 
 T = TypeVar("T", bound=BaseModel)

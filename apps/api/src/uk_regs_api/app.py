@@ -81,8 +81,9 @@ def get_rule(rule_id: str) -> dict:
 def get_current(
     topic: str | None = Query(None, description="Free-text topic filter"),
     category: str | None = Query(
-        None, description="One of: fire, structure, ventilation, access, "
-                          "drainage, energy, sound, safety, other"
+        None,
+        description="One of: fire, structure, ventilation, access, "
+        "drainage, energy, sound, safety, other",
     ),
 ) -> dict:
     backend = get_backend()
@@ -167,9 +168,7 @@ def export_markdown() -> dict:
             lines.append(f"**References:** {', '.join(r.references)}")
             lines.append("")
         c = r.citation
-        lines.append(
-            f"**Source:** {c.doc_id} {c.version}, p.{c.page} — _\u201c{c.raw_text}\u201d_"
-        )
+        lines.append(f"**Source:** {c.doc_id} {c.version}, p.{c.page} — _\u201c{c.raw_text}\u201d_")
         lines.append("")
         lines.append("---")
         lines.append("")

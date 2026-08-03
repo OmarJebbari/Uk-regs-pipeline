@@ -4,6 +4,19 @@ version = "0.1.0"
 description = "Temporal GraphRAG pipeline for UK Building Regulations — context intelligence"
 readme = "README.md"
 requires-python = ">=3.12"
+# Root is the aggregate entry-point: depending on every workspace member
+# ensures `uv sync` installs the whole monorepo into the venv so the test
+# suite and dev tooling can import all packages.
+dependencies = [
+    "uk-regs-core",
+    "uk-regs-extraction",
+    "uk-regs-knowledge",
+    "uk-regs-reconcile",
+    "uk-regs-evals",
+    "uk-regs-ingest",
+    "uk-regs-api",
+    "uk-regs-mcp-server",
+]
 
 [tool.uv.workspace]
 members = [
@@ -15,6 +28,14 @@ members = [
     "pipelines/ingest",
     "apps/api",
     "apps/mcp_server",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "httpx>=0.27",   # required by FastAPI TestClient
+    "mcp>=1.0",      # required by the MCP server build test
 ]
 
 [tool.uv.sources]
@@ -32,8 +53,15 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+# TC001/002/003 (flake8-type-checking) intentionally excluded: this is a
+# Pydantic-heavy codebase where type-only imports behind TYPE_CHECKING break
+# model field resolution at runtime. E501 handled by formatter.
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Exception is part of the public API; renaming would be a breaking change.
+"packages/core/src/uk_regs_core/errors.py" = ["N818"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages", "pipelines"]

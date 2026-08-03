@@ -13,13 +13,10 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
-from PIL import Image
-
 import fitz  # PyMuPDF
-
+from PIL import Image
 from uk_regs_core import BlockType, BoundingBox, ContentBlock
 from uk_regs_core.ids import ulid_like
-
 
 # PyMuPDF block flags
 _LIST_ITEM_FLAGS = 1  # not authoritative; we re-detect list items via regex
@@ -120,7 +117,9 @@ def parse_pdf(
         b = b.model_copy(update={"reading_order": i})
         blocks[i] = b
 
-    return ParsedDocument(doc_id=doc_id, version=version, pages=pages, blocks=blocks, figure_block_ids=figure_ids)
+    return ParsedDocument(
+        doc_id=doc_id, version=version, pages=pages, blocks=blocks, figure_block_ids=figure_ids
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -186,6 +185,6 @@ def _is_heading(rb: dict) -> bool:
         span = line["spans"][0]
         size = span.get("size", 0)
         flags = span.get("flags", 0)
-        return size >= 13.0 or bool(flags & 2 ** 4)  # bold bit
+        return size >= 13.0 or bool(flags & 2**4)  # bold bit
     except (KeyError, IndexError):
         return False

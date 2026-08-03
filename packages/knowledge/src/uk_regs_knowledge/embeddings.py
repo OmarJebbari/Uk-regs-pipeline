@@ -9,7 +9,7 @@ callers.
 from __future__ import annotations
 
 import abc
-from typing import Sequence
+from collections.abc import Sequence
 
 from uk_regs_core import Settings, get_settings
 

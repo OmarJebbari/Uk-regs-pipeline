@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
-
 from uk_regs_core import Decision, Rule, RuleDelta
 
 
@@ -21,7 +20,9 @@ class Candidate(BaseModel):
 
     rule: Rule
     score: float = Field(ge=0.0, le=1.0)
-    matched_on: str = Field(description="What signalled the match, e.g. 'embedding', 'section_path'")
+    matched_on: str = Field(
+        description="What signalled the match, e.g. 'embedding', 'section_path'"
+    )
 
 
 class ReconcileInput(BaseModel):

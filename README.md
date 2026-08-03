@@ -182,7 +182,7 @@ uk-regs-pipeline/
 │  └─ reconciliation/ # matchers + supersession engine (the "update memory" heart)
 ├─ pipelines/
 │  └─ ingest/         # orchestrator + CLI (`uk-regs-ingest`)
-├─ apps/              # (planned) FastAPI + MCP server
+├─ apps/              # FastAPI context API (`uk-regs-api`) + MCP server (`uk-regs-mcp`)
 ├─ infra/
 │  ├─ compose/        # docker-compose: Postgres+pgvector, Neo4j, MinIO
 │  ├─ docker/         # (Dockerfiles)
@@ -235,6 +235,25 @@ uv run uk-regs-ingest --help
 uv run uk-regs-ingest ingest data/sample.pdf --title "Approved Document B" --version 2026-ed1 --skip-llm
 uv run uk-regs-ingest batch data/pdfs/ --version 2026-ed1 --skip-llm
 ```
+
+### 5. Serve context to your IDE
+```bash
+uv run uk-regs-api          # FastAPI on http://localhost:8000 (REST + /docs)
+uv run uk-regs-mcp          # MCP server over stdio for Cursor/Claude Desktop
+```
+
+MCP wiring for Cursor (`~/.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "uk-regs": {
+      "command": "uv",
+      "args": ["--directory", "<path>/uk-regs-pipeline", "run", "uk-regs-mcp"]
+    }
+  }
+}
+```
+Then ask Cursor/Claude: *"check the design intent for a 3-storey residential escape route"* — it calls `check_design_intent`, returns cited rules, and generates code that references `rule_id` + source page.
 
 ---
 
@@ -289,8 +308,11 @@ make reset    # ⚠ stop services and DELETE all volumes
 
 - [x] **Phase 1** — Vertical slice: ingest → parse → extract → persist → CLI
 - [x] **Phase 2** — Bitemporal memory + reconciliation engine
-- [ ] **Phase 3** — FastAPI context-serving API + **MCP server** (Cursor/Claude integration)
-- [ ] **Phase 4** — Evals (golden set, DeepEval/RAGAS), review UI, auth, observability
+- [x] **Phase 3** — FastAPI context-serving API + **MCP server** (Cursor/Claude integration)
+- [x] **Phase 4A** — **Evals harness + golden gate** (retrieval / reconciliation / extraction suites, deterministic metrics, `uk-regs-eval` CLI, 100% accuracy gate enforced in CI)
+  - Unicode-normalising extractor (handles `mm²`, smart quotes, en/em dashes from PDFs)
+  - Precision-calibrated reconciliation decisioning (text-similarity + parameter-equality driven, not raw candidate score)
+- [ ] **Phase 4B** — DeepEval/RAGAS LLM-judge integration, review UI, auth, observability
 - [ ] **Phase 5** — Scheduling/source monitoring, hybrid search, dashboards
 
 ---

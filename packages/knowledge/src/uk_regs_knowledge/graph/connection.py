@@ -9,8 +9,7 @@ from __future__ import annotations
 import threading
 
 from neo4j import Driver, GraphDatabase
-
-from uk_regs_core import ConfigError, Settings, get_settings
+from uk_regs_core import Settings, get_settings
 
 _driver: Driver | None = None
 _lock = threading.Lock()

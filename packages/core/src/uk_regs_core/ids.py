@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _NON_ALNUM = re.compile(r"[^A-Z0-9]+")
 
@@ -36,7 +36,7 @@ def sha256_of(data: bytes) -> str:
 
 
 def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def ulid_like() -> str:

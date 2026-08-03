@@ -15,6 +15,32 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+# --- Unicode normalization --------------------------------------------------
+# PDFs frequently use superscripts (mm²), smart quotes, en/em dashes, and
+# non-breaking spaces that break regex matching. We normalise these to their
+# ASCII equivalents before extraction so "5,000 mm²" is read as "5,000 mm2".
+_UNICODE_MAP = str.maketrans(
+    {
+        "\u00b2": "2",  # ² superscript two
+        "\u00b3": "3",  # ³ superscript three
+        "\u00a0": " ",  # non-breaking space
+        "\u2010": "-",  # hyphen
+        "\u2011": "-",  # non-breaking hyphen
+        "\u2012": "-",  # figure dash
+        "\u2013": "-",  # en dash
+        "\u2014": "-",  # em dash
+        "\u2018": "'",  # left single quote
+        "\u2019": "'",  # right single quote
+        "\u201c": '"',  # left double quote
+        "\u201d": '"',  # right double quote
+    }
+)
+
+
+def _normalize_text(text: str) -> str:
+    """Normalise common PDF unicode artifacts to ASCII before regex extraction."""
+    return text.translate(_UNICODE_MAP)
+
 # --- Measurements -----------------------------------------------------------
 _MEASUREMENT = re.compile(
     r"""
@@ -39,18 +65,26 @@ _STANDARDS = re.compile(
 )
 
 # --- Section paths ----------------------------------------------------------
+# A section reference is one of:
+#   * an explicit "Section 2.3.1" / "Sec. 4"        -> prefix_num
+#   * a letter+digit clause id "B1", "A2.3"         -> letter
+#   * "Appendix A"                                  -> app
+#   * an *unprefixed* dotted path with 3+ components -> multi
+# We deliberately do NOT match bare numbers or 2-component decimals, because
+# those collide with standards numbers ("BS EN 1991-1-3" -> "1991") and with
+# measurement values ("1.5 m2" -> "1.5"). Requiring 3+ dotted components for
+# the unprefixed form keeps "2.3.1" while rejecting "1.5".
 _SECTION = re.compile(
     r"""
-    \b
     (?:
-        (?:Section\s+)?
-        (?P<num>\d+(?:\.\d+){0,4}(?:\.[a-z])?)
+        (?:section|sec\.?)\s+(?P<prefix_num>\d+(?:\.\d+)*(?:\.[a-z])?)
         |
         (?P<letter>[A-Z]\d{1,2}(?:\.\d+)?)
         |
-        Appendix\s+(?P<app>[A-Z0-9]+)
+        appendix\s+(?P<app>[A-Z0-9]+)
+        |
+        (?P<multi>\d+\.\d+\.\d+(?:\.\d+)*(?:\.[a-z])?)
     )
-    \b
     """,
     re.VERBOSE,
 )
@@ -83,14 +117,21 @@ class DeterministicFacts:
 
 def extract_facts(text: str) -> DeterministicFacts:
     """Extract all deterministic facts from a text block."""
+    norm = _normalize_text(text)
     measurements = [
-        {"value": m.group("value"), "unit": m.group("unit")}
-        for m in _MEASUREMENT.finditer(text)
+        {"value": m.group("value"), "unit": m.group("unit")} for m in _MEASUREMENT.finditer(norm)
     ]
-    standards = [re.sub(r"\s+", " ", s) for s in (m.group(0).strip() for m in _STANDARDS.finditer(text))]
+    standards = [
+        re.sub(r"\s+", " ", s) for s in (m.group(0).strip() for m in _STANDARDS.finditer(norm))
+    ]
     sections: list[str] = []
-    for m in _SECTION.finditer(text):
-        sec = m.group("num") or m.group("letter") or m.group("app")
+    for m in _SECTION.finditer(norm):
+        sec = (
+            m.group("prefix_num")
+            or m.group("letter")
+            or m.group("app")
+            or m.group("multi")
+        )
         if sec:
             sections.append(sec)
     return DeterministicFacts(measurements=measurements, standards=standards, sections=sections)

@@ -61,7 +61,8 @@ class GraphRepository:
         with self._driver.session() as s:
             for std in standards:
                 s.run(
-                    "MERGE (:Standard {ref: $ref})", ref=std,
+                    "MERGE (:Standard {ref: $ref})",
+                    ref=std,
                 )
 
     def link_rule_to_standards(self, rule_id: str, standards: list[str]) -> None:
@@ -72,7 +73,8 @@ class GraphRepository:
                     MATCH (r:Rule {rule_id: $rid}), (s:Standard {ref: $ref})
                     MERGE (r)-[:REFERENCES]->(s)
                     """,
-                    rid=rule_id, ref=std,
+                    rid=rule_id,
+                    ref=std,
                 )
 
     def add_supersession(
@@ -104,7 +106,8 @@ class GraphRepository:
                 MATCH (a:Rule {rule_id: $a}), (b:Rule {rule_id: $b})
                 MERGE (a)-[:DEPENDS_ON]->(b)
                 """,
-                a=depending_rule_id, b=depended_rule_id,
+                a=depending_rule_id,
+                b=depended_rule_id,
             )
 
     # -- read ---------------------------------------------------------------- #

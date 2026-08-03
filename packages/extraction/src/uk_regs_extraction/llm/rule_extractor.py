@@ -9,16 +9,13 @@ It must NOT invent values; it must ground every field in the source text.
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
 
 from pydantic import BaseModel, Field
-
 from uk_regs_core import Category, Citation, Rule, RuleStatus
 from uk_regs_core.ids import now_utc, rule_id
 
 from uk_regs_extraction.deterministic.extractors import DeterministicFacts
 from uk_regs_extraction.llm.client import LLMClient
-
 
 SYSTEM_PROMPT = """You are a UK Building Regulations extraction engine.
 Your output MUST be grounded in the provided source text — never invent facts.

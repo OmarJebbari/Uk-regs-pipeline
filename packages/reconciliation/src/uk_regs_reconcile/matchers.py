@@ -123,7 +123,10 @@ class EmbeddingMatcher(Matcher):
             old_vec = _get_embedding(old)
             if old_vec is None:
                 continue
-            sim = float(np.dot(new_vec, old_vec) / (np.linalg.norm(new_vec) * np.linalg.norm(old_vec) + 1e-9))
+            sim = float(
+                np.dot(new_vec, old_vec)
+                / (np.linalg.norm(new_vec) * np.linalg.norm(old_vec) + 1e-9)
+            )
             if sim >= self.min_score:
                 scored.append(Candidate(rule=old, score=sim, matched_on="embedding"))
 

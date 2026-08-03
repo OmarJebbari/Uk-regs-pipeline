@@ -1,0 +1,64 @@
+---
+# Golden set for extraction evaluation.
+# Each case defines raw text a PDF would contain and the deterministic facts
+# (measurements, standards, section refs) that extract_facts() MUST pull out.
+#
+# NOTE: measurement parameter keys are lowercased by as_parameters(), so a unit
+# of "kN" becomes the key "measurement_kn". The unit alternation in the regex
+# does not include "min", so fire-rating minutes are not captured determin-
+# istically — that is handled by the LLM layer, not tested here.
+
+suite: extraction
+description: >
+  Raw regulation text and the structured facts the deterministic
+  extractors must recover. Tests precision of measurement/standard/section
+  extraction — the bedrock of typed Rule.parameters.
+
+cases:
+  - id: extr-001
+    text: "The minimum headroom shall be 2,000 mm. Refer to BS EN 1991-1-1 for loads."
+    expected:
+      measurements:
+        - {value: 2000, unit: mm}
+      standards: ["BS EN 1991-1-1"]
+      sections: []
+      parameter_keys: ["measurement_mm"]
+
+  - id: extr-002
+    text: "Smoke vents shall provide a clear area of 1.5 m2 per BS EN 12101-2."
+    expected:
+      measurements:
+        - {value: 1.5, unit: m2}
+      standards: ["BS EN 12101-2"]
+      sections: []
+      parameter_keys: ["measurement_m2"]
+
+  - id: extr-003
+    text: "See section 2.3.1 for details. The clear width shall not be less than 1,200 mm."
+    expected:
+      measurements:
+        - {value: 1200, unit: mm}
+      standards: []
+      sections: ["2.3.1"]
+      parameter_keys: ["measurement_mm"]
+
+  - id: extr-004
+    # NOTE: mm² (superscript two) is an AREA unit, square millimetres. The
+    # extractor normalises the unicode superscript to ASCII "mm2", producing
+    # parameter key "measurement_mm2" — distinct from linear "mm".
+    text: "Background ventilators shall provide a total equivalent area of 5,000 mm²."
+    expected:
+      measurements:
+        - {value: 5000, unit: mm2}
+      standards: []
+      sections: []
+      parameter_keys: ["measurement_mm2"]
+
+  - id: extr-005
+    text: "Roof access hatches shall withstand a live load of 0.6 kN per BS EN 1991-1-3."
+    expected:
+      measurements:
+        - {value: 0.6, unit: kN}
+      standards: ["BS EN 1991-1-3"]
+      sections: []
+      parameter_keys: ["measurement_kn"]

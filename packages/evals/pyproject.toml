@@ -6,7 +6,13 @@ requires-python = ">=3.12"
 dependencies = [
     "uk-regs-core",
     "uk-regs-knowledge",
+    "uk-regs-extraction",
+    "uk-regs-reconcile",
+    "uk-regs-api",
+    "pyyaml>=6.0",
     "pytest>=8.0",
+    "click>=8.1",
+    "rich>=13.7",
 ]
 
 [build-system]
@@ -15,3 +21,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/uk_regs_evals"]
+
+[project.scripts]
+uk-regs-eval = "uk_regs_evals.main:main"

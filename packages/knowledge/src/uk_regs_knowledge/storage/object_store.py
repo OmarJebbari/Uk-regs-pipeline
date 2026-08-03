@@ -8,14 +8,15 @@ based and never overwritten. Figure images are keyed by stable id.
 from __future__ import annotations
 
 import abc
-from typing import IO
 
 from uk_regs_core import Settings, StorageError, get_settings
 
 
 class ObjectStore(abc.ABC):
     @abc.abstractmethod
-    def put(self, key: str, data: bytes, *, content_type: str = "application/octet-stream") -> None: ...
+    def put(
+        self, key: str, data: bytes, *, content_type: str = "application/octet-stream"
+    ) -> None: ...
 
     @abc.abstractmethod
     def get(self, key: str) -> bytes: ...

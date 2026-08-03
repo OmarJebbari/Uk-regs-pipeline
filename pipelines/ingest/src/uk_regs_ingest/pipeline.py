@@ -37,23 +37,20 @@ from uk_regs_core import (
     get_settings,
 )
 from uk_regs_core.ids import (
-    change_set_id,
     doc_id_from_title,
     now_utc,
     sha256_of,
 )
-
 from uk_regs_extraction.deterministic.extractors import extract_facts
 from uk_regs_extraction.figures.understander import FigureUnderstander
-from uk_regs_extraction.llm.client import LLMClient, get_llm_client
+from uk_regs_extraction.llm.client import LLMClient
 from uk_regs_extraction.llm.rule_extractor import RuleExtractor, to_rule
 from uk_regs_extraction.parsing.pdf_parser import (
     ParsedDocument,
     drain_pending_uploads,
     parse_pdf,
 )
-
-from uk_regs_knowledge.embeddings import Embedder, get_embedder
+from uk_regs_knowledge.embeddings import Embedder
 from uk_regs_knowledge.repositories.relational_repo import (
     ChangeSetRepository,
     DocumentRepository,
@@ -64,7 +61,6 @@ from uk_regs_knowledge.storage.object_store import (
     document_key,
     get_object_store,
 )
-
 from uk_regs_reconcile.engine import Reconciler
 
 logger = logging.getLogger(__name__)
@@ -204,14 +200,20 @@ class IngestPipeline:
 
         # 7. Reconcile against the current corpus
         decisions, review_count, cs_id = self._reconcile_and_persist(
-            rules, doc_id, version, apply=apply)
+            rules, doc_id, version, apply=apply
+        )
 
         # 8. Optional JSON dump (for verification / offline dev / EDA export)
         if out_dir is not None:
             self._dump_json(
-                out_dir, doc_id=doc_id, version=version, rules=rules,
-                decisions=decisions, review_count=review_count,
-                change_set_id=cs_id, parsed=parsed,
+                out_dir,
+                doc_id=doc_id,
+                version=version,
+                rules=rules,
+                decisions=decisions,
+                review_count=review_count,
+                change_set_id=cs_id,
+                parsed=parsed,
             )
 
         return IngestResult(
@@ -302,7 +304,9 @@ class IngestPipeline:
         if not pending:
             return
         if self.object_store is None:
-            logger.warning("parser produced %d figure(s) but no object store is available", len(pending))
+            logger.warning(
+                "parser produced %d figure(s) but no object store is available", len(pending)
+            )
             return
         for key, img_bytes in pending.items():
             self.object_store.put(key, img_bytes, content_type="image/png")
@@ -314,7 +318,9 @@ class IngestPipeline:
             return []
         understander = FigureUnderstander(self.llm, self.object_store)
         results: list[dict] = []
-        figure_blocks = [b for b in parsed.blocks if b.block_type == BlockType.FIGURE and b.figure_key]
+        figure_blocks = [
+            b for b in parsed.blocks if b.block_type == BlockType.FIGURE and b.figure_key
+        ]
         for fb in figure_blocks:
             try:
                 desc = understander.describe(fb.figure_key)  # type: ignore[arg-type]
@@ -357,14 +363,19 @@ class IngestPipeline:
                         page=block.page,
                     )
                 except Exception:
-                    logger.warning("LLM extraction failed on block %s", block.block_id, exc_info=True)
+                    logger.warning(
+                        "LLM extraction failed on block %s", block.block_id, exc_info=True
+                    )
                     continue
                 if extracted is None or not extracted.is_regulation:
                     continue
-                section_path = extracted.section_path or _nearest_section(facts, block.page) or f"p{block.page}"
+                section_path = (
+                    extracted.section_path
+                    or _nearest_section(facts, block.page)
+                    or f"p{block.page}"
+                )
             else:
                 # Deterministic-only fallback: synthesize a minimal rule from facts
-                from uk_regs_core import Category, Citation
 
                 section_path = _nearest_section(facts, block.page) or f"p{block.page}"
                 extracted = None  # sentinel
@@ -435,7 +446,9 @@ class IngestPipeline:
                 try:
                     embeddings = self.embedder.embed_texts([r.normalized_form for r in rules])
                 except Exception:
-                    logger.warning("embedding batch failed; rules persisted without vectors", exc_info=True)
+                    logger.warning(
+                        "embedding batch failed; rules persisted without vectors", exc_info=True
+                    )
                     embeddings = None
             for i, rule in enumerate(rules):
                 if apply:

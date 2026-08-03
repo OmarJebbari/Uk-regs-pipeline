@@ -29,8 +29,6 @@ from uk_regs_core.ids import (
 )
 from uk_regs_core.models import (
     BoundingBox,
-)
-from uk_regs_core.models import (
     ChangeSet,
     Citation,
     ContentBlock,

@@ -1,0 +1,64 @@
+---
+# Golden set for retrieval evaluation.
+# Each case maps a natural-language query (what an engineer or IDE assistant
+# would actually ask) to the rule_id(s) that SHOULD be returned.
+#
+# Top-k evaluation: a case "passes" if at least one expected rule appears
+# in the top-k results. k defaults to 3 (configurable in metrics.py).
+
+suite: retrieval
+description: >
+  Natural-language queries an engineer or IDE assistant would ask,
+  mapped to the canonical rule that must be retrieved.
+
+cases:
+  - id: ret-001
+    query: "What is the minimum fire door rating for a single stairway?"
+    expected_rule_ids: [rule-fire-001]
+    expected_category: fire
+    note: "Direct match — 'fire door rating' + 'single stairway'."
+
+  - id: ret-002
+    query: "fire resistance minutes FD30 stairway"
+    expected_rule_ids: [rule-fire-001]
+    expected_category: fire
+    note: "Keyword variant of ret-001."
+
+  - id: ret-003
+    query: "How wide does an escape route need to be?"
+    expected_rule_ids: [rule-struct-001]
+    expected_category: structure
+    note: "Semantic — 'wide' maps to 'clear width'."
+
+  - id: ret-004
+    query: "minimum clear width escape route 1200 mm 60 occupants"
+    expected_rule_ids: [rule-struct-001]
+    expected_category: structure
+    note: "Keyword + numeric variant."
+
+  - id: ret-005
+    query: "background ventilator area habitable room"
+    expected_rule_ids: [rule-vent-001]
+    expected_category: ventilation
+    note: "Ventilation terminology."
+
+  - id: ret-006
+    query: "ventilation openings 5000 mm2"
+    expected_rule_ids: [rule-vent-001]
+    expected_category: ventilation
+    note: "Numeric + synonym ('openings' ~ 'ventilators')."
+
+  - id: ret-007
+    query: "staircase headroom clearance height"
+    expected_rule_ids: []
+    expected_category: structure
+    note: >
+      Negative case — no golden rule for headroom in the mock corpus.
+      Tests that the system does not fabricate a confident false hit.
+      expected_rule_ids is empty; we check the top result is NOT high-confidence.
+
+  - id: ret-008
+    query: "door fire protection single staircase residential"
+    expected_rule_ids: [rule-fire-001]
+    expected_category: fire
+    note: "Paraphrase with synonyms ('protection' ~ 'resistance')."

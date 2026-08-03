@@ -11,8 +11,9 @@ backend can be swapped without touching the HTTP layer.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from typing import Protocol, Sequence
+from collections.abc import Sequence
+from datetime import UTC, date, datetime
+from typing import Protocol
 
 from uk_regs_core import (
     Category,
@@ -70,7 +71,9 @@ class RealBackend:
     def __init__(self) -> None:
         self._rules = None
         self._changes = None
+        self._figures = None
         self._embedder = None
+        self._graph = None
 
     # lazy so import of the api package doesn't require a running DB
     def _ensure(self) -> None:
@@ -78,11 +81,13 @@ class RealBackend:
             return
         from uk_regs_knowledge.repositories.relational_repo import (
             ChangeSetRepository,
+            FigureRepository,
             RuleRepository,
         )
 
         self._rules = RuleRepository()
         self._changes = ChangeSetRepository()
+        self._figures = FigureRepository()
 
     def _get_embedder(self):
         if self._embedder is None:
@@ -120,7 +125,8 @@ class RealBackend:
         if topic:
             tl = topic.lower()
             all_rules = [
-                r for r in all_rules
+                r
+                for r in all_rules
                 if tl in (r.text or "").lower()
                 or tl in (r.title or "").lower()
                 or tl in (r.normalized_form or "").lower()
@@ -128,8 +134,12 @@ class RealBackend:
         return all_rules
 
     def get_figure(self, rule_id: str) -> Figure | None:
-        # Figure persistence is Phase 4; return None gracefully for now.
-        return None
+        self._ensure()
+        try:
+            figs = self._figures.list_for_rule(rule_id)
+            return figs[0] if figs else None
+        except Exception:
+            return None
 
     def list_changes(self, status: str | None = None, limit: int = 50) -> list[ChangeSet]:
         self._ensure()
@@ -140,20 +150,79 @@ class RealBackend:
         rule = self._rules.get_rule_by_id(rule_id)
         if not rule:
             return {"error": "not found", "rule_id": rule_id}
-        # find superseding rule via status
+        # Try the graph for supersession provenance; fall back to SQL mirror.
+        previous: dict | None = None
+        try:
+            previous = self._diff_from_graph(rule_id)
+        except Exception:
+            previous = self._diff_from_sql(rule_id)
         return {
             "rule_id": rule_id,
             "current": _rule_to_dict(rule),
-            "previous": None,
-            "note": "Graph-traversal diff wired in Phase 4 (Neo4j SUPERSEDED_BY).",
+            "previous": previous,
         }
+
+    def _diff_from_graph(self, rule_id: str) -> dict | None:
+        if self._graph is None:
+            try:
+                from uk_regs_knowledge.graph.connection import get_driver
+
+                self._graph = get_driver()
+            except Exception:
+                self._graph = None
+                return None
+        from uk_regs_knowledge.graph.graph_repo import GraphRepository
+
+        history = GraphRepository(self._graph).version_history(rule_id)
+        # history is oldest-first; the predecessor is the entry right before us.
+        prev_entries = [h for h in history if h.get("rule_id") != rule_id]
+        if not prev_entries:
+            return None
+        prev = prev_entries[-1]
+        return {
+            "rule_id": prev.get("rule_id"),
+            "version": prev.get("version"),
+            "text": prev.get("text"),
+            "valid_from": prev.get("valid_from"),
+            "valid_to": prev.get("valid_to"),
+            "source": "graph",
+        }
+
+    def _diff_from_sql(self, rule_id: str) -> dict | None:
+        """Fallback: read the SQL `supersessions` mirror table."""
+        from uk_regs_knowledge.relational.connection import get_pool
+
+        pool = get_pool()
+        conn = pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT old_rule_id, reason FROM supersessions WHERE new_rule_id = %s",
+                    (rule_id,),
+                )
+                row = cur.fetchone()
+            if not row:
+                return None
+            old_id, reason = row
+            prev_rule = self._rules.get_rule_by_id(old_id)
+            if not prev_rule:
+                return {"rule_id": old_id, "reason": reason, "source": "sql"}
+            return {
+                "rule_id": old_id,
+                "reason": reason,
+                "text": prev_rule.text,
+                "parameters": prev_rule.parameters,
+                "source": "sql",
+            }
+        finally:
+            pool.putconn(conn)
 
 
 # --------------------------------------------------------------------------- #
 #  Mock backend — always works, no DB. Great for demos / first run.
 # --------------------------------------------------------------------------- #
 def _mock_rules() -> list[Rule]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today = date.today()
     cite = lambda p, t: Citation(  # noqa: E731
         doc_id="ad-b-2026", version="2026-ed1", page=p, raw_text=t, url=None
@@ -167,7 +236,7 @@ def _mock_rules() -> list[Rule]:
             category=Category.FIRE,
             title="Minimum fire door rating",
             text="Fire doors protecting a single stairway shall have a minimum "
-                 "fire resistance of 30 minutes (FD30).",
+            "fire resistance of 30 minutes (FD30).",
             normalized_form="fire door minimum resistance 30 minutes fd30 single stairway",
             parameters={"min_resistance_min": 30, "rating": "FD30"},
             references=["BS EN 1634-1", "BS 476-22"],
@@ -175,7 +244,9 @@ def _mock_rules() -> list[Rule]:
             valid_to=None,
             recorded_at=now,
             status=RuleStatus.ACTIVE,
-            citation=cite(42, "Fire doors ... shall have a minimum fire resistance of 30 minutes (FD30)."),
+            citation=cite(
+                42, "Fire doors ... shall have a minimum fire resistance of 30 minutes (FD30)."
+            ),
             confidence=0.96,
             extraction_method="hybrid",
         ),
@@ -187,7 +258,7 @@ def _mock_rules() -> list[Rule]:
             category=Category.STRUCTURE,
             title="Minimum escape route width",
             text="The minimum clear width of an escape route shall be 1,200 mm "
-                 "for buildings with more than 60 occupants.",
+            "for buildings with more than 60 occupants.",
             normalized_form="escape route clear width 1200 mm 60 occupants",
             parameters={"min_width_mm": 1200, "occupant_threshold": 60},
             references=["BS EN 1991-1-1"],
@@ -207,7 +278,7 @@ def _mock_rules() -> list[Rule]:
             category=Category.VENTILATION,
             title="Background ventilator area",
             text="Each habitable room shall have background ventilators with a "
-                 "total equivalent area of not less than 5,000 mm².",
+            "total equivalent area of not less than 5,000 mm².",
             normalized_form="background ventilator area 5000 mm2 habitable room",
             parameters={"min_area_mm2": 5000},
             references=["BS EN 13141-1"],
@@ -215,7 +286,9 @@ def _mock_rules() -> list[Rule]:
             valid_to=None,
             recorded_at=now,
             status=RuleStatus.ACTIVE,
-            citation=cite(27, "Each habitable room shall have background ventilators ... 5,000 mm²."),
+            citation=cite(
+                27, "Each habitable room shall have background ventilators ... 5,000 mm²."
+            ),
             confidence=0.94,
             extraction_method="hybrid",
         ),
@@ -251,8 +324,7 @@ class MockBackend:
         if topic:
             tl = topic.lower()
             rules = [
-                r for r in rules
-                if tl in (r.text or "").lower() or tl in (r.title or "").lower()
+                r for r in rules if tl in (r.text or "").lower() or tl in (r.title or "").lower()
             ]
         return rules
 
@@ -260,7 +332,7 @@ class MockBackend:
         return None
 
     def list_changes(self, status: str | None = None, limit: int = 50) -> list[ChangeSet]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return [
             ChangeSet(
                 change_set_id="cs-demo-001",
