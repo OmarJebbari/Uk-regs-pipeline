@@ -384,9 +384,9 @@ the full test suite locally — so a broken commit never reaches CI.
   - Unicode-normalising extractor (handles `mm²`, smart quotes, en/em dashes from PDFs)
   - Precision-calibrated reconciliation decisioning (text-similarity + parameter-equality driven, not raw candidate score)
 - [ ] **Phase 4B** — Production hardening *(in progress)*
-  - [x] **CI/CD** — GitHub Actions quality gate (lint + test + evals, 100% accuracy), Dependabot, pre-commit hooks, line-ending hygiene
-  - [ ] DeepEval/RAGAS LLM-judge integration
-  - [ ] Review UI, auth, observability (OpenTelemetry + Langfuse)
+  - [x] **4B‑1 · CI/CD** ✅ — GitHub Actions quality gate (lint + test + evals, 100% accuracy gate), `uv` caching, pre-commit hooks, Dependabot, line-ending hygiene, `make ci` / `make hooks`
+  - [ ] **4B‑2 · DeepEval / RAGAS** — LLM-as-a-judge scoring (faithfulness, answer-relevance, citation precision) layered on the golden set; runs live when an API key is present, skipped gracefully otherwise
+  - [ ] **4B‑3 · Review UI, auth, observability** — ChangeSet review screen, API auth, OpenTelemetry + Langfuse tracing
 - [ ] **Phase 5** — Scheduling/source monitoring, hybrid search, dashboards
 
 ---
