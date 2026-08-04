@@ -1,0 +1,109 @@
+# LLM-as-a-judge golden suite
+#
+# Every case here contains a *well-formed* generated context — faithful to the
+# source, relevant to the query, and correctly cited. The regression gate
+# requires 100 % pass, so these prove the judge (and the context-generation
+# pipeline it evaluates) produces high-quality output.
+#
+# Negative cases — where the judge must *catch* bad context (hallucinated
+# numbers, wrong citations, irrelevant answers) — live in the dedicated unit
+# test file ``tests/test_llm_judge.py``.
+#
+# Judge dimensions:
+#   faithfulness         : is every claim grounded in a source rule?
+#   answer_relevance     : does the context address the query?
+#   citation_precision   : are cited rule_ids correct?
+
+suite: llm_judge
+cases:
+  # --- Fire resistance ------------------------------------------------------
+  - id: lj-001-fire-resistance
+    query: What is the required fire resistance rating for a protected shaft?
+    source_rules:
+      - rule_id: FIR-301
+        text: >
+          A protected shaft serving habitable rooms shall have a fire resistance
+          rating of at least 60 minutes integrity and 60 minutes insulation.
+      - rule_id: FIR-302
+        text: >
+          Doors protecting a protected shaft shall be FD60S fire-door assemblies.
+    generated_context: >
+      A protected shaft serving habitable rooms must provide at least 60 minutes
+      integrity and 60 minutes insulation fire resistance (FIR-301). Doors
+      protecting the shaft shall be FD60S assemblies (FIR-302).
+    expected_rule_ids: [FIR-301, FIR-302]
+    note: Faithful paraphrase with correct citations.
+
+  # --- Means of escape — stair width ----------------------------------------
+  - id: lj-002-stair-width
+    query: How wide must an escape stair be for 220 people?
+    source_rules:
+      - rule_id: ESC-110
+        text: >
+          The minimum width of an escape stair shall be 1100 mm for an occupant
+          load of 220 persons.
+    generated_context: >
+      For an escape stair serving 220 persons, the minimum required width is
+      1100 mm (ESC-110).
+    expected_rule_ids: [ESC-110]
+
+  # --- Travel distance ------------------------------------------------------
+  - id: lj-003-travel-distance
+    query: What is the maximum travel distance to a storey exit?
+    source_rules:
+      - rule_id: ESC-205
+        text: >
+          The maximum travel distance to a storey exit shall be 18 metres in
+          one direction or 45 metres where more than one direction is available.
+    generated_context: >
+      The maximum travel distance to a storey exit is 18 metres where only one
+      direction of travel is available, increasing to 45 metres where more than
+      one direction is available (ESC-205).
+    expected_rule_ids: [ESC-205]
+
+  # --- Headroom -------------------------------------------------------------
+  - id: lj-004-headroom
+    query: What headroom is required on an escape route?
+    source_rules:
+      - rule_id: ACC-410
+        text: >
+          The minimum headroom over an escape route shall be 2.0 metres.
+      - rule_id: ACC-411
+        text: >
+          Projections below 2.0 metres must be clearly marked.
+    generated_context: >
+      The minimum headroom over an escape route shall be 2.0 metres (ACC-410).
+      Any projections below 2.0 metres must be clearly marked (ACC-411).
+    expected_rule_ids: [ACC-410, ACC-411]
+
+  # --- Smoke control --------------------------------------------------------
+  - id: lj-005-smoke-control
+    query: When is a smoke control system required in a corridor?
+    source_rules:
+      - rule_id: SMK-501
+        text: >
+          A mechanical smoke control system is required in any protected corridor
+          exceeding 18 metres in length.
+      - rule_id: SMK-502
+        text: >
+          The system shall maintain a minimum pressure differential of 50 Pa.
+    generated_context: >
+      A mechanical smoke control system must be installed in any protected
+      corridor longer than 18 metres (SMK-501), maintaining at least 50 Pa
+      pressure differential (SMK-502).
+    expected_rule_ids: [SMK-501, SMK-502]
+
+    # --- Glazing ratio --------------------------------------------------------
+  - id: lj-006-glazing-ratio
+    query: What glazing ratio is permitted in a non-domestic building?
+    source_rules:
+      - rule_id: FAC-620
+        text: >
+          The total area of glazing in an external wall shall not exceed 25% of
+          the internal floor area of the storey.
+    generated_context: >
+      The permitted glazing ratio in a non-domestic building is 25 % of the
+      internal floor area of the storey — that is, the total area of glazing
+      in an external wall shall not exceed 25 % of the internal floor area
+      (FAC-620).
+    expected_rule_ids: [FAC-620]

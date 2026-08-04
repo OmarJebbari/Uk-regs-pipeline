@@ -23,7 +23,7 @@ from typing import Any, Literal, TypeVar
 
 import yaml
 
-SuiteName = Literal["retrieval", "reconciliation", "extraction"]
+SuiteName = Literal["retrieval", "reconciliation", "extraction", "llm_judge"]
 
 # The golden YAML files live at the *project* root: ``<project>/evals/golden/``.
 # In this monorepo the package is nested under ``packages/evals/src/...``, so we
@@ -82,6 +82,21 @@ class ExtractionCase:
     expected: ExtractionExpected
 
 
+@dataclass(slots=True, frozen=True)
+class LLMJudgeCase:
+    """A golden case for the LLM-as-a-judge suite (context-quality scoring)."""
+
+    id: str
+    query: str
+    source_rules: list[dict[str, Any]]  # ground-truth: [{"rule_id": ..., "text": ...}]
+    generated_context: str  # the pipeline output to evaluate
+    expected_rule_ids: list[str]
+    min_faithfulness: float = 0.80
+    min_relevance: float = 0.50
+    min_citation_precision: float = 1.00
+    note: str = ""
+
+
 # --------------------------------------------------------------------------- #
 #  Loader
 # --------------------------------------------------------------------------- #
@@ -103,7 +118,7 @@ def _read_yaml(suite: SuiteName) -> dict[str, Any]:
     return data
 
 
-_VALID_SUITES = {"retrieval", "reconciliation", "extraction"}
+_VALID_SUITES = {"retrieval", "reconciliation", "extraction", "llm_judge"}
 
 
 def load_cases(suite: SuiteName) -> list[Any]:
@@ -163,5 +178,21 @@ def load_cases(suite: SuiteName) -> list[Any]:
                 )
             )
         return out
+
+    if suite == "llm_judge":
+        return [
+            LLMJudgeCase(
+                id=str(c["id"]),
+                query=str(c["query"]),
+                source_rules=list(c.get("source_rules", [])),
+                generated_context=str(c.get("generated_context", "")),
+                expected_rule_ids=list(c.get("expected_rule_ids", [])),
+                min_faithfulness=float(c.get("min_faithfulness", 0.80)),
+                min_relevance=float(c.get("min_relevance", 0.50)),
+                min_citation_precision=float(c.get("min_citation_precision", 1.00)),
+                note=str(c.get("note", "")),
+            )
+            for c in raw_cases
+        ]
 
     raise ValueError(f"Unknown suite: {suite!r}")

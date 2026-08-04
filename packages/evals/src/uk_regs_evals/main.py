@@ -1,9 +1,9 @@
 """
 Command-line interface for the evaluation harness.
 
-Runs the golden-set suites (retrieval, reconciliation, extraction) and prints
-a Markdown report. Exits non-zero when overall accuracy falls below the gate
-(default ``1.0`` — every golden case must pass for a compliance pipeline).
+Runs the golden-set suites (retrieval, reconciliation, extraction, llm_judge)
+and prints a Markdown report. Exits non-zero when overall accuracy falls below
+the gate (default ``1.0`` — every golden case must pass for a compliance pipeline).
 
 Examples
 --------
@@ -12,6 +12,9 @@ uk-regs-eval run
 
 # Run only extraction, allow 90% accuracy:
 uk-regs-eval run --suite extraction --gate 0.9
+
+# Run only the LLM-as-a-judge context-quality suite:
+uk-regs-eval run --suite llm_judge
 
 # Skip the live-DB retrieval pass (useful in CI without a populated index):
 uk-regs-eval run --no-retrieval
@@ -68,7 +71,7 @@ def cli(verbose: bool) -> None:
 @cli.command("run")
 @click.option(
     "--suite",
-    type=click.Choice(["all", "retrieval", "reconciliation", "extraction"]),
+    type=click.Choice(["all", "retrieval", "reconciliation", "extraction", "llm_judge"]),
     default="all",
     help="Which suite to run (default: all)",
 )
@@ -81,6 +84,7 @@ def cli(verbose: bool) -> None:
 @click.option("--no-retrieval", is_flag=True, help="Skip the retrieval suite")
 @click.option("--no-reconciliation", is_flag=True, help="Skip the reconciliation suite")
 @click.option("--no-extraction", is_flag=True, help="Skip the extraction suite")
+@click.option("--no-llm-judge", is_flag=True, help="Skip the LLM-judge context-quality suite")
 @click.option(
     "--out",
     "out_path",
@@ -95,24 +99,29 @@ def run(
     no_retrieval: bool,
     no_reconciliation: bool,
     no_extraction: bool,
+    no_llm_judge: bool,
     out_path: Path | None,
     no_color: bool,
 ) -> None:
     """Run the golden-set eval suites and print a report."""
     # Map --suite to the run_* flags. ``--no-*`` always wins (most restrictive).
-    run_ret = run_rec = run_ext = True
+    run_ret = run_rec = run_ext = run_judge = True
     if suite == "retrieval":
-        run_rec = run_ext = False
+        run_rec = run_ext = run_judge = False
     elif suite == "reconciliation":
-        run_ret = run_ext = False
+        run_ret = run_ext = run_judge = False
     elif suite == "extraction":
-        run_ret = run_rec = False
+        run_ret = run_rec = run_judge = False
+    elif suite == "llm_judge":
+        run_ret = run_rec = run_ext = False
     if no_retrieval:
         run_ret = False
     if no_reconciliation:
         run_rec = False
     if no_extraction:
         run_ext = False
+    if no_llm_judge:
+        run_judge = False
 
     backend = None
     if run_ret:
@@ -127,6 +136,7 @@ def run(
         run_retrieval=run_ret,
         run_reconciliation=run_rec,
         run_extraction=run_ext,
+        run_llm_judge=run_judge,
     )
 
     md = report.to_markdown()
@@ -164,7 +174,7 @@ def list_cases() -> None:
     table.add_column("ID", style="bold")
     table.add_column("Summary", overflow="fold")
 
-    for suite in ("retrieval", "reconciliation", "extraction"):
+    for suite in ("retrieval", "reconciliation", "extraction", "llm_judge"):
         try:
             cases = load_cases(suite)
         except FileNotFoundError as e:
@@ -175,6 +185,8 @@ def list_cases() -> None:
                 summary = f"q={c.query!r} → {c.expected_rule_ids}"
             elif suite == "reconciliation":
                 summary = f"{c.description} (expect {c.expected_decision})"
+            elif suite == "llm_judge":
+                summary = f"q={c.query!r} → {c.expected_rule_ids}"
             else:
                 summary = c.text[:80] + ("…" if len(c.text) > 80 else "")
             table.add_row(suite, c.id, summary)

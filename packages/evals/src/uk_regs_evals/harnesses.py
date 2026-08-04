@@ -2,7 +2,7 @@
 Evaluation harnesses that exercise the real pipeline components against the
 golden datasets.
 
-Three harnesses, one per suite:
+Four harnesses, one per suite:
 
   * ``RetrievalHarness``      — hits a ``ContextBackend.search()`` and checks
                                  that the expected rule_ids surface in the
@@ -16,6 +16,10 @@ Three harnesses, one per suite:
   * ``ExtractionHarness``     — runs ``extract_facts()`` on the raw text and
                                  checks measurements / standards / sections /
                                  parameter keys are recovered exactly.
+  * ``LLMJudgeHarness``       — scores generated-context quality (faithfulness,
+                                 relevance, citation precision) with a
+                                 deterministic ``RubricJudge`` by default and
+                                 an ``LLMJudge`` when an API key is set.
 
 Each harness returns a ``SuiteReport``. ``run_all()`` runs every suite and
 prints a Markdown report; the CLI exits non-zero if accuracy falls below a
@@ -35,10 +39,12 @@ from uk_regs_reconcile.engine import Reconciler
 
 from uk_regs_evals.golden import (
     ExtractionCase,
+    LLMJudgeCase,
     ReconciliationCase,
     RetrievalCase,
     load_cases,
 )
+from uk_regs_evals.llm_judge import Judge, JudgeCase, judge_factory
 from uk_regs_evals.metrics import (
     CaseResult,
     SuiteReport,
@@ -203,6 +209,62 @@ class ExtractionHarness:
 
 
 # --------------------------------------------------------------------------- #
+#  LLM-as-a-judge harness
+# --------------------------------------------------------------------------- #
+@dataclass(slots=True)
+class LLMJudgeHarness:
+    """
+    Scores generated-context quality (faithfulness / relevance / citations).
+
+    Uses ``RubricJudge`` by default (deterministic, offline, CI-safe) and
+    upgrades to ``LLMJudge`` automatically when an LLM client is available.
+    Pass an explicit ``judge`` to force a specific implementation.
+    """
+
+    judge: Judge | None = None
+
+    def run(self) -> SuiteReport:
+        cases: list[LLMJudgeCase] = load_cases("llm_judge")
+        judge = self.judge or judge_factory()
+        results: list[CaseResult] = []
+
+        for c in cases:
+            jc = JudgeCase(
+                id=c.id,
+                query=c.query,
+                source_rules=c.source_rules,
+                generated_context=c.generated_context,
+                expected_rule_ids=c.expected_rule_ids,
+                min_faithfulness=c.min_faithfulness,
+                min_relevance=c.min_relevance,
+                min_citation_precision=c.min_citation_precision,
+            )
+            try:
+                score = judge.score(jc)
+            except Exception as e:
+                logger.exception("judge failed for %s", c.id)
+                results.append(
+                    CaseResult(case_id=c.id, passed=False, detail=f"ERROR: {e}", score=0.0)
+                )
+                continue
+
+            passed = (
+                score.faithfulness >= c.min_faithfulness
+                and score.answer_relevance >= c.min_relevance
+                and score.citation_precision >= c.min_citation_precision
+            )
+            results.append(
+                CaseResult(
+                    case_id=c.id,
+                    passed=passed,
+                    detail=score.rationale,
+                    score=score.overall,
+                )
+            )
+        return summarize("llm_judge", results)
+
+
+# --------------------------------------------------------------------------- #
 #  Runner + report
 # --------------------------------------------------------------------------- #
 @dataclass(slots=True)
@@ -210,9 +272,10 @@ class EvalReport:
     retrieval: SuiteReport | None
     reconciliation: SuiteReport | None
     extraction: SuiteReport | None
+    llm_judge: SuiteReport | None = None
 
     def all_reports(self) -> list[SuiteReport]:
-        return [r for r in (self.retrieval, self.reconciliation, self.extraction) if r]
+        return [r for r in (self.retrieval, self.reconciliation, self.extraction, self.llm_judge) if r]
 
     @property
     def overall_accuracy(self) -> float:
@@ -261,6 +324,8 @@ def run_all(
     run_retrieval: bool = True,
     run_reconciliation: bool = True,
     run_extraction: bool = True,
+    run_llm_judge: bool = True,
+    judge: Judge | None = None,
 ) -> EvalReport:
     """
     Run every enabled suite and return a combined report.
@@ -271,6 +336,7 @@ def run_all(
     retrieval = None
     reconciliation = None
     extraction = None
+    llm_judge = None
 
     if run_retrieval:
         b = backend or _default_search_backend()
@@ -282,8 +348,12 @@ def run_all(
     if run_extraction:
         extraction = ExtractionHarness().run()
 
+    if run_llm_judge:
+        llm_judge = LLMJudgeHarness(judge=judge).run()
+
     return EvalReport(
         retrieval=retrieval,
         reconciliation=reconciliation,
         extraction=extraction,
+        llm_judge=llm_judge,
     )

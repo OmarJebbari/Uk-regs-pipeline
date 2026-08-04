@@ -190,7 +190,7 @@ uk-regs-pipeline/
 │  └─ ingest/         # orchestrator + CLI (`uk-regs-ingest`)
 ├─ apps/              # FastAPI context API (`uk-regs-api`) + MCP server (`uk-regs-mcp`)
 ├─ evals/
-│  └─ golden/         # golden datasets: extraction · reconciliation · retrieval (YAML)
+│  └─ golden/         # golden datasets: extraction · reconciliation · retrieval · llm_judge (YAML)
 ├─ infra/
 │  ├─ compose/        # docker-compose: Postgres+pgvector, Neo4j, MinIO
 │  ├─ docker/         # (Dockerfiles)
@@ -269,8 +269,8 @@ make eval          # all suites vs live backend (Postgres if up, else mock)
 make eval-offline  # no DB needed — skips retrieval, writes reports/eval.md
 make eval-list     # just list the golden cases
 ```
-The golden gate enforces **100% accuracy** across three suites (extraction,
-reconciliation, retrieval). Run it before every PR — it's wired into `make check`.
+The golden gate enforces **100% accuracy** across four suites (extraction,
+reconciliation, retrieval, llm_judge). Run it before every PR — it's wired into `make check`.
 
 ---
 
@@ -298,18 +298,20 @@ Old versions are **never deleted** — they remain queryable for audit history.
 Because this is compliance-critical, the pipeline ships a **golden-set regression harness**
 that blocks a commit if accuracy drops below 100%.
 
-### The three suites (`evals/golden/`)
+### The four suites (`evals/golden/`)
 
 | Suite | YAML | What it checks |
 |---|---|---|
 | **Extraction** | `extraction.yaml` | Deterministic extractors pull the right typed facts (dimensions, standards refs, section IDs) from raw PDF text — incl. unicode edge cases (`mm²`, smart quotes, en/em dashes). |
 | **Reconciliation** | `reconciliation.yaml` | The engine pairs new vs old rules into the correct decision — `match` / `partial` (amended) / `novel` (added) / `conflict` (review) — driven by text-similarity + parameter-equality, not raw candidate scores. |
 | **Retrieval** | `retrieval.yaml` | The context-serving layer returns the right cited rules for a design-intent query. |
+| **LLM-judge** | `llm_judge.yaml` | Context *quality*, not just correctness — scores the served context on **faithfulness** (no hallucinated measurements), **relevance** to the query, and **citation precision** (every claim cites a real `rule_id`). Runs a real LLM-as-a-judge when `OPENAI_API_KEY` is set; otherwise a deterministic rubric fallback (token-overlap + citation containment) so the gate still holds in CI. |
 
 ### CLI
 
 ```bash
 uv run uk-regs-eval run                                       # all suites, auto backend
+uv run uk-regs-eval run --suite llm_judge                     # context-quality suite only
 uv run uk-regs-eval run --no-retrieval --out reports/eval.md  # offline markdown report
 uv run uk-regs-eval list                                      # list golden cases
 ```
@@ -385,7 +387,7 @@ the full test suite locally — so a broken commit never reaches CI.
   - Precision-calibrated reconciliation decisioning (text-similarity + parameter-equality driven, not raw candidate score)
 - [ ] **Phase 4B** — Production hardening *(in progress)*
   - [x] **4B‑1 · CI/CD** ✅ — GitHub Actions quality gate (lint + test + evals, 100% accuracy gate), `uv` caching, pre-commit hooks, Dependabot, line-ending hygiene, `make ci` / `make hooks`
-  - [ ] **4B‑2 · DeepEval / RAGAS** — LLM-as-a-judge scoring (faithfulness, answer-relevance, citation precision) layered on the golden set; runs live when an API key is present, skipped gracefully otherwise
+  - [x] **4B‑2 · LLM-as-a-judge** ✅ — Context-quality scoring (faithfulness, answer-relevance, citation precision) via the 4th golden suite (`llm_judge.yaml`); runs live with a real judge when `OPENAI_API_KEY` is set, falls back to a deterministic rubric so the gate still holds in CI
   - [ ] **4B‑3 · Review UI, auth, observability** — ChangeSet review screen, API auth, OpenTelemetry + Langfuse tracing
 - [ ] **Phase 5** — Scheduling/source monitoring, hybrid search, dashboards
 
