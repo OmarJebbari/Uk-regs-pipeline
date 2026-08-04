@@ -288,6 +288,42 @@ make eval-list     # just list the golden cases
 The golden gate enforces **100% accuracy** across four suites (extraction,
 reconciliation, retrieval, llm_judge). Run it before every PR — it's wired into `make check`.
 
+### 8. Auth & observability (production hardening)
+
+The API ships with three opt-in production layers — all degrade gracefully to
+zero-config dev mode:
+
+**API key auth** — set `API_KEY` in `.env` to gate mutating routes
+(`POST /changes/.../review`). Read endpoints (`GET`) and health probes stay open.
+When `API_KEY` is unset, the API runs in open dev mode.
+
+```bash
+make api-protected   # start the API with API_KEY gating enabled
+# Clients must send:  X-API-Key: <your-key>
+```
+
+**Structured logging** — [structlog](https://www.structlog.org/) emits JSON in
+prod (`LOG_FORMAT=json`) or pretty colored console in dev. Every request is
+auto-tagged with `request_id`, `method`, `path`, `status_code`, `latency_ms`.
+A `X-Request-ID` header is echoed back for distributed tracing.
+
+```bash
+curl -H "X-Request-ID: trace-123" http://localhost:8000/healthz
+# response header: x-request-id: trace-123
+```
+
+**OpenTelemetry tracing** — set `OTEL_EXPORTER_OTLP_ENDPOINT` to ship spans
+to a collector (Jaeger, Tempo, Grafana). FastAPI auto-instrumentation is
+included. Leave unset to disable.
+
+**Langfuse LLM observability** — set `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`
+to trace every LLM call (rule extraction, figure understanding) with full
+prompt/response payloads. Leave unset to disable.
+
+```bash
+make api-otel   # start the API with OTel traces → your collector
+```
+
 ---
 
 ## How "memory + update" works
@@ -364,6 +400,10 @@ All config is 12-factor via `.env` (see `.env.example`), parsed by
 | `CONFIDENCE_THRESHOLD` | `0.85` | Below this → route to human review |
 | `RECONCILIATION_TOP_K` | `5` | Candidates per new rule during matching |
 | `UK_REGS_BACKEND` | `auto` | Backend for API + evals: `auto` (Postgres if up, else mock) / `mock` / `postgres` |
+| `API_KEY` | *(unset)* | If set, mutating routes require `X-API-Key` header. Unset = open dev mode. |
+| `LOG_FORMAT` | `console` | `json` (prod) or `console` (dev, colored) via structlog |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | OTLP collector URL. Unset = tracing disabled. |
+| `LANGFUSE_PUBLIC_KEY` | *(unset)* | Langfuse LLM tracing. Unset = disabled. |
 
 ---
 
@@ -405,7 +445,7 @@ the full test suite locally — so a broken commit never reaches CI.
   - [x] **4B‑1 · CI/CD** ✅ — GitHub Actions quality gate (lint + test + evals, 100% accuracy gate), `uv` caching, pre-commit hooks, Dependabot, line-ending hygiene, `make ci` / `make hooks`
   - [x] **4B‑2 · LLM-as-a-judge** ✅ — Context-quality scoring (faithfulness, answer-relevance, citation precision) via the 4th golden suite (`llm_judge.yaml`); runs live with a real judge when `OPENAI_API_KEY` is set, falls back to a deterministic rubric so the gate still holds in CI
   - [x] **4B‑3a · Review UI** ✅ — Dark-themed ChangeSet review dashboard (Jinja2 + HTMX): live status counts, side-by-side delta diffs, inline apply/reject/rollback with HTMX partial re-render. New `make review` target opens it in the browser.
-  - [ ] **4B‑3b · Auth, observability** — API auth, OpenTelemetry + Langfuse tracing
+  - [x] **4B‑3b · Auth & observability** ✅ — API key gating on mutating routes, structlog structured logging (JSON/console), OpenTelemetry tracing (opt-in), Langfuse LLM tracing (opt-in), `/healthz` + `/readyz` probes, request-id propagation. All degrade gracefully when unset.
 - [ ] **Phase 5** — Scheduling/source monitoring, hybrid search, dashboards
 
 ---

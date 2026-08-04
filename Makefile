@@ -11,7 +11,8 @@ VER     ?= "2026-ed1"
 
 .PHONY: help install hooks up down status logs init-db reset \
         ingest ingest-offline lint fmt test check ci clean \
-        api api-mock mcp export-rules review eval eval-offline eval-list
+        api api-mock api-protected api-otel mcp export-rules review \
+        eval eval-offline eval-list
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -107,6 +108,14 @@ api:  ## Run the FastAPI context API (auto: Postgres if up, else mock)
 
 api-mock:  ## Run the API forced to the in-memory mock backend (no DB needed)
 	UK_REGS_BACKEND=mock uv run uk-regs-api
+
+api-protected:  ## Run the API with API_KEY gating (set API_KEY in .env first)
+	@echo "Starting protected API — mutating routes need X-API-Key"
+	UK_REGS_BACKEND=auto uv run uk-regs-api
+
+api-otel:  ## Run the API with OpenTelemetry traces → local OTLP collector
+	@echo "Ensure an OTLP collector is listening on \$$OTEL_EXPORTER_OTLP_ENDPOINT"
+	UK_REGS_BACKEND=auto uv run uk-regs-api
 
 mcp:  ## Run the MCP server over stdio (for Cursor/Claude IDE integration)
 	uv run uk-regs-mcp

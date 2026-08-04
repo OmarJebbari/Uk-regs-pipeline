@@ -1,8 +1,10 @@
 """
-FastAPI app — the context-serving API (Phase 3 + Phase 4B-3a Review UI).
+FastAPI app — the context-serving API (Phase 3 + 4B-3a Review UI + 4B-3b Auth/Observability).
 
 JSON API:
-  GET /health
+  GET /health                   -> liveness (process up)
+  GET /healthz                  -> k8s liveness probe
+  GET /readyz                   -> k8s readiness probe (backend reachable)
   GET /search?q=...&top_k=10
   GET /rules/{rule_id}
   GET /current?topic=&category=
@@ -10,15 +12,15 @@ JSON API:
   GET /diff/{rule_id}
   GET /changes?status=&limit=
   GET /changes/{change_set_id}
-  POST /changes/{change_set_id}/review   (decision, reviewer, notes)
+  POST /changes/{change_set_id}/review   (decision, reviewer, notes)  [auth]
   GET /export/markdown        -> consolidated .cursor/rules + CLAUDE.md export
 
 Review UI (Jinja2 + HTMX, dark professional theme):
   GET /ui/                            -> dashboard of pending changes
   GET /ui/changes/{change_set_id}     -> detail with side-by-side diff
 
-Every response carries citations. The app runs with a Mock backend out of the
-box, and auto-upgrades to the Real (Postgres) backend when the DB is reachable.
+Auth: when API_KEY env is set, mutating routes require X-API-Key header.
+Observability: structlog logging, OpenTelemetry tracing, Langfuse LLM tracing.
 """
 
 from __future__ import annotations
@@ -26,10 +28,12 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from uk_regs_api.auth import ApiKeyMiddleware
+from uk_regs_api.observability import setup_observability
 from uk_regs_api.service import (
     RuleHit,
     changeset_to_dict,
@@ -44,8 +48,12 @@ app = FastAPI(
         "Semantic search + current-rule + diff + figures + changelog for UK "
         "building regulations. Every response carries citations."
     ),
-    version="0.4.0",
+    version="0.5.0",
 )
+
+# Wire observability (logging, tracing, request-id middleware) + auth.
+setup_observability(app)
+app.add_middleware(ApiKeyMiddleware)
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -64,11 +72,35 @@ templates.env.filters["fmt_dt"] = _fmt_dt
 
 
 # --------------------------------------------------------------------------- #
-#  Health
+#  Health probes (liveness + readiness)
 # --------------------------------------------------------------------------- #
 @app.get("/health")
+@app.get("/healthz")
 def health() -> dict[str, str]:
+    """Liveness probe — process is up and serving."""
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz(response: Response) -> dict:
+    """
+    Readiness probe — backend is reachable and queryable.
+
+    Returns 200 when the backend responds, 503 otherwise. k8s/docker route
+    traffic to this instance only when this returns 200.
+    """
+    checks: dict[str, str] = {}
+    ok = True
+    try:
+        backend = get_backend()
+        # cheap call: count current rules (works for both Mock + Postgres)
+        rules = backend.get_current()
+        checks["backend"] = f"ok ({len(rules)} rules)"
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        checks["backend"] = f"fail: {exc.__class__.__name__}: {exc}"
+    response.status_code = 200 if ok else 503
+    return {"ready": ok, "checks": checks}
 
 
 # --------------------------------------------------------------------------- #

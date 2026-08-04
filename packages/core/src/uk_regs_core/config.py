@@ -70,6 +70,30 @@ class Settings(BaseSettings):
     )
     reconciliation_top_k: int = 5
 
+    # ---- API auth ----
+    api_key: str | None = Field(
+        default=None,
+        description="If set, mutating routes require X-API-Key header. "
+        "Unset = open (dev mode).",
+    )
+
+    # ---- Logging (structlog) ----
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_format: Literal["json", "console"] = "console"
+
+    # ---- OpenTelemetry ----
+    otel_exporter_otlp_endpoint: str | None = Field(
+        default=None,
+        description="OTLP collector endpoint, e.g. http://localhost:4317. "
+        "Unset = tracing disabled.",
+    )
+    otel_service_name: str = "uk-regs-api"
+
+    # ---- Langfuse (LLM observability) ----
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+
 
 @lru_cache
 def get_settings() -> Settings:
