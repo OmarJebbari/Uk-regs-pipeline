@@ -11,7 +11,7 @@ VER     ?= "2026-ed1"
 
 .PHONY: help install hooks up down status logs init-db reset \
         ingest ingest-offline lint fmt test check ci clean \
-        api api-mock mcp export-rules eval eval-offline eval-list
+        api api-mock mcp export-rules review eval eval-offline eval-list
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -117,6 +117,12 @@ export-rules:  ## Export consolidated regulations to CONSOLIDATED_REGULATIONS.md
 		d = json.loads(r.read()); \
 		open(d['filename'], 'w', encoding='utf-8').write(d['content']); \
 		print(f'Wrote {d[\"filename\"]} ({d[\"rule_count\"]} rules)')"
+
+review:  ## Open the ChangeSet Review UI (HTMX dashboard) in the default browser
+	@echo "Opening Review UI at http://localhost:8000/ui/ ..."
+	@command -v xdg-open >/dev/null 2>&1 && xdg-open http://localhost:8000/ui/ || \
+	 command -v open >/dev/null 2>&1 && open http://localhost:8000/ui/ || \
+	 start http://localhost:8000/ui/ || true
 
 # --------------------------------------------------------------------------- #
 #  Misc

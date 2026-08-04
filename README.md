@@ -250,6 +250,22 @@ uv run uk-regs-api          # FastAPI on http://localhost:8000 (REST + /docs)
 uv run uk-regs-mcp          # MCP server over stdio for Cursor/Claude Desktop
 ```
 
+### 6. Review proposed change-sets (human-in-the-loop UI)
+```bash
+make api-mock    # start the API (mock backend, no Docker needed)
+make review      # open the Review UI at http://localhost:8000/ui/
+```
+The **ChangeSet Review UI** is a dark-themed Jinja2 + HTMX dashboard built into
+the API. It lists every reconciliation change-set with live status counts, lets
+you drill into a side-by-side diff of each delta (matched vs new rule), and apply
+a review decision (`applied` / `rejected` / `rolled_back`) inline — the page
+re-renders with a confirmation flash. Available both via the UI and the JSON API:
+```bash
+# JSON API equivalent
+curl -X POST http://localhost:8000/changes/cs-001/review \
+  -d "decision=applied&reviewer=alice&notes=lgtm"
+```
+
 MCP wiring for Cursor (`~/.cursor/mcp.json`):
 ```json
 {
@@ -263,7 +279,7 @@ MCP wiring for Cursor (`~/.cursor/mcp.json`):
 ```
 Then ask Cursor/Claude: *"check the design intent for a 3-storey residential escape route"* — it calls `check_design_intent`, returns cited rules, and generates code that references `rule_id` + source page.
 
-### 6. Run the evals (golden gate)
+### 7. Run the evals (golden gate)
 ```bash
 make eval          # all suites vs live backend (Postgres if up, else mock)
 make eval-offline  # no DB needed — skips retrieval, writes reports/eval.md
@@ -388,7 +404,8 @@ the full test suite locally — so a broken commit never reaches CI.
 - [ ] **Phase 4B** — Production hardening *(in progress)*
   - [x] **4B‑1 · CI/CD** ✅ — GitHub Actions quality gate (lint + test + evals, 100% accuracy gate), `uv` caching, pre-commit hooks, Dependabot, line-ending hygiene, `make ci` / `make hooks`
   - [x] **4B‑2 · LLM-as-a-judge** ✅ — Context-quality scoring (faithfulness, answer-relevance, citation precision) via the 4th golden suite (`llm_judge.yaml`); runs live with a real judge when `OPENAI_API_KEY` is set, falls back to a deterministic rubric so the gate still holds in CI
-  - [ ] **4B‑3 · Review UI, auth, observability** — ChangeSet review screen, API auth, OpenTelemetry + Langfuse tracing
+  - [x] **4B‑3a · Review UI** ✅ — Dark-themed ChangeSet review dashboard (Jinja2 + HTMX): live status counts, side-by-side delta diffs, inline apply/reject/rollback with HTMX partial re-render. New `make review` target opens it in the browser.
+  - [ ] **4B‑3b · Auth, observability** — API auth, OpenTelemetry + Langfuse tracing
 - [ ] **Phase 5** — Scheduling/source monitoring, hybrid search, dashboards
 
 ---

@@ -59,6 +59,12 @@ class ContextBackend(Protocol):
 
     def list_changes(self, status: str | None = None, limit: int = 50) -> list[ChangeSet]: ...
 
+    def get_change_set(self, change_set_id: str) -> ChangeSet | None: ...
+
+    def review_change_set(
+        self, change_set_id: str, decision: str, reviewer: str, notes: str = ""
+    ) -> ChangeSet | None: ...
+
     def diff(self, rule_id: str) -> dict: ...
 
 
@@ -144,6 +150,17 @@ class RealBackend:
     def list_changes(self, status: str | None = None, limit: int = 50) -> list[ChangeSet]:
         self._ensure()
         return self._changes.list_changes(status=status, limit=limit)
+
+    def get_change_set(self, change_set_id: str) -> ChangeSet | None:
+        self._ensure()
+        cs_list = self._changes.list_changes(limit=1000)
+        return next((c for c in cs_list if c.change_set_id == change_set_id), None)
+
+    def review_change_set(
+        self, change_set_id: str, decision: str, reviewer: str, notes: str = ""
+    ) -> ChangeSet | None:
+        self._ensure()
+        return self._changes.review(change_set_id, decision, reviewer, notes)
 
     def diff(self, rule_id: str) -> dict:
         self._ensure()
@@ -295,9 +312,63 @@ def _mock_rules() -> list[Rule]:
     ]
 
 
+def _mock_change_sets() -> list[ChangeSet]:
+    """Seed the mock with a realistic review queue: one applied, one pending."""
+    now = datetime.now(UTC)
+    yesterday = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    return [
+        ChangeSet(
+            change_set_id="cs-demo-001",
+            doc_id="ad-b-2026",
+            version="2026-ed1",
+            created_at=yesterday,
+            status="applied",
+            reviewed_by="alice@practice.com",
+            reviewed_at=now,
+            review_notes="Verified against the published 2026 edition.",
+            deltas=[
+                RuleDelta(
+                    new_rule_id="rule-fire-001",
+                    matched_rule_id="rule-fire-000",
+                    decision=Decision.PARTIAL,
+                    confidence=0.91,
+                    rationale="Fire resistance updated from 20 min to 30 min.",
+                    diff_summary="min_resistance_min: 20 -> 30",
+                ),
+            ],
+        ),
+        ChangeSet(
+            change_set_id="cs-demo-002",
+            doc_id="ad-a-2026",
+            version="2026-ed1",
+            created_at=now,
+            status="proposed",
+            deltas=[
+                RuleDelta(
+                    new_rule_id="rule-struct-001",
+                    matched_rule_id="rule-struct-000",
+                    decision=Decision.PARTIAL,
+                    confidence=0.88,
+                    rationale="Escape route width increased from 1,000 mm to 1,200 mm.",
+                    diff_summary="min_width_mm: 1000 -> 1200",
+                ),
+                RuleDelta(
+                    new_rule_id="rule-vent-001",
+                    matched_rule_id=None,
+                    decision=Decision.NOVEL,
+                    confidence=0.95,
+                    rationale="New requirement for background ventilator area.",
+                    diff_summary="Added: min_area_mm2 = 5000",
+                ),
+            ],
+        ),
+    ]
+
+
 class MockBackend:
     def __init__(self) -> None:
         self._rules = _mock_rules()
+        self._changes = _mock_change_sets()
 
     def _score(self, query: str, rule: Rule) -> float:
         q = query.lower()
@@ -332,26 +403,32 @@ class MockBackend:
         return None
 
     def list_changes(self, status: str | None = None, limit: int = 50) -> list[ChangeSet]:
-        now = datetime.now(UTC)
-        return [
-            ChangeSet(
-                change_set_id="cs-demo-001",
-                doc_id="ad-b-2026",
-                version="2026-ed1",
-                created_at=now,
-                status="applied",
-                deltas=[
-                    RuleDelta(
-                        new_rule_id="rule-fire-001",
-                        matched_rule_id="rule-fire-000",
-                        decision=Decision.PARTIAL,
-                        confidence=0.91,
-                        rationale="Fire resistance updated from 20 min to 30 min.",
-                        diff_summary="min_resistance_min: 20 -> 30",
-                    ),
-                ],
-            )
-        ]
+        out = self._changes
+        if status:
+            out = [c for c in out if c.status == status]
+        return list(out[:limit])
+
+    def get_change_set(self, change_set_id: str) -> ChangeSet | None:
+        return next((c for c in self._changes if c.change_set_id == change_set_id), None)
+
+    def review_change_set(
+        self, change_set_id: str, decision: str, reviewer: str, notes: str = ""
+    ) -> ChangeSet | None:
+        valid = {"applied", "rejected", "rolled_back"}
+        if decision not in valid:
+            raise ValueError(f"decision must be one of {valid}, got '{decision}'")
+        for i, c in enumerate(self._changes):
+            if c.change_set_id == change_set_id:
+                self._changes[i] = c.model_copy(
+                    update={
+                        "status": decision,
+                        "reviewed_by": reviewer,
+                        "reviewed_at": datetime.now(UTC),
+                        "review_notes": notes,
+                    }
+                )
+                return self._changes[i]
+        return None
 
     def diff(self, rule_id: str) -> dict:
         rule = self.get_rule(rule_id)
@@ -414,6 +491,9 @@ def changeset_to_dict(cs: ChangeSet) -> dict:
         "doc_id": cs.doc_id,
         "version": cs.version,
         "created_at": cs.created_at.isoformat(),
+        "reviewed_at": cs.reviewed_at.isoformat() if cs.reviewed_at else None,
+        "reviewed_by": cs.reviewed_by,
+        "review_notes": cs.review_notes,
         "status": cs.status,
         "delta_count": len(cs.deltas),
         "deltas": [

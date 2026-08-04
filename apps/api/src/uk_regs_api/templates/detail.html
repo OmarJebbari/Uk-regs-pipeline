@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}{{ cs.change_set_id }} — Review{% endblock %}
+
+{% block content %}
+<a href="/ui/" style="color: var(--text-muted); text-decoration: none; font-size: 14px; display: inline-block; margin-bottom: 16px;">← Back to dashboard</a>
+
+<h1>{{ cs.doc_id }} <span style="color: var(--text-dim); font-size: 18px;">{{ cs.version }}</span></h1>
+<div class="meta-row" style="font-size: 14px;">
+    <span>ID: <strong style="font-family: var(--mono);">{{ cs.change_set_id }}</strong></span>
+    <span>Status: <strong class="{{ status_styles.get(cs.status, '') }}">{{ cs.status }}</strong></span>
+    <span>Created: <strong>{{ cs.created_at | fmt_dt }}</strong></span>
+    {% if cs.reviewed_at %}
+        <span>Reviewed: <strong>{{ cs.reviewed_at | fmt_dt }}</strong> by {{ cs.reviewed_by }}</span>
+    {% endif %}
+</div>
+
+{% if flash %}
+    <div class="flash">{{ flash }}</div>
+{% endif %}
+
+<h2 style="margin-top: 32px;">Deltas ({{ cs.deltas | length }})</h2>
+
+{% for item in rules %}
+    {% set delta = item.delta %}
+    {% set new_rule = item.new_rule %}
+    {% set matched_rule = item.matched_rule %}
+    <div class="delta-row">
+        <div class="delta-header">
+            <span class="badge {{ decision_styles[delta.decision.value][0] }}">
+                {{ decision_styles[delta.decision.value][1] }}
+            </span>
+            <span class="confidence">confidence: {{ '%.2f' | format(delta.confidence) }}</span>
+            <span class="card-id">{{ delta.new_rule_id }}</span>
+        </div>
+
+        <div class="diff-grid">
+            <!-- Old / matched rule -->
+            <div class="diff-pane diff-pane-old">
+                <div class="diff-pane-label">
+                    {% if matched_rule %}Previous Rule{% else %}— No prior rule —{% endif %}
+                </div>
+                {% if matched_rule %}
+                    <div class="rule-text">{{ matched_rule.text }}</div>
+                    {% if matched_rule.parameters %}
+                        <div class="rule-params">{{ matched_rule.parameters | tojson(indent=2) }}</div>
+                    {% endif %}
+                {% else %}
+                    <div class="rule-text" style="color: var(--text-dim); font-style: italic;">
+                        This is a novel rule (no predecessor in the knowledge base).
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- New rule -->
+            <div class="diff-pane diff-pane-new">
+                <div class="diff-pane-label">New Rule</div>
+                {% if new_rule %}
+                    <div class="rule-text">{{ new_rule.text }}</div>
+                    {% if new_rule.parameters %}
+                        <div class="rule-params">{{ new_rule.parameters | tojson(indent=2) }}</div>
+                    {% endif %}
+                    {% if new_rule.references %}
+                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                            Refs: {{ new_rule.references | join(", ") }}
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="rule-text" style="color: var(--text-dim);">Rule not found.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if delta.rationale %}
+            <div class="rationale">{{ delta.rationale }}</div>
+        {% endif %}
+    </div>
+{% endfor %}
+
+<!-- Review form -->
+<div class="review-panel">
+    <h3>Review Decision</h3>
+    <p style="margin-bottom: 16px;">Apply this change-set to update the current truth, reject it, or roll it back.</p>
+    <form action="/ui/changes/{{ cs.change_set_id }}/review" method="post" hx-post="/ui/changes/{{ cs.change_set_id }}/review" hx-target="body" hx-swap="outerHTML">
+        <div class="form-row">
+            <label for="reviewer">Reviewer</label>
+            <input type="text" id="reviewer" name="reviewer" placeholder="Your name" required>
+        </div>
+        <div class="form-row">
+            <label for="notes">Notes</label>
+            <textarea id="notes" name="notes" placeholder="Optional notes about this decision…"></textarea>
+        </div>
+        <div class="btn-group">
+            <button type="submit" name="decision" value="applied" class="btn btn-apply">✓ Apply</button>
+            <button type="submit" name="decision" value="rejected" class="btn btn-reject">✗ Reject</button>
+            <button type="submit" name="decision" value="rolled_back" class="btn btn-rollback">↩ Roll Back</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — UK Regs Review{% endblock %}
+
+{% block content %}
+<h1>Review Queue</h1>
+<p>Pending and recently-reviewed change-sets from the reconciliation engine.</p>
+
+<div class="stats">
+    <div class="stat-card pending">
+        <div class="num">{{ counts.proposed }}</div>
+        <div class="label">Pending</div>
+    </div>
+    <div class="stat-card applied">
+        <div class="num">{{ counts.applied }}</div>
+        <div class="label">Applied</div>
+    </div>
+    <div class="stat-card rejected">
+        <div class="num">{{ counts.rejected }}</div>
+        <div class="label">Rejected</div>
+    </div>
+    <div class="stat-card rolled_back">
+        <div class="num">{{ counts.rolled_back }}</div>
+        <div class="label">Rolled Back</div>
+    </div>
+    <div class="stat-card">
+        <div class="num">{{ counts.total }}</div>
+        <div class="label">Total</div>
+    </div>
+</div>
+
+<h2>Change-Sets</h2>
+{% if change_sets %}
+    {% for cs in change_sets %}
+        <a href="/ui/changes/{{ cs.change_set_id }}" class="card">
+            <div class="card-header">
+                <span class="card-id">{{ cs.change_set_id }}</span>
+                <span class="card-title">{{ cs.doc_id }} <span style="color: var(--text-dim); font-size: 13px;">{{ cs.version }}</span></span>
+                <span class="badge {{ status_styles.get(cs.status, '') }}">
+                    {{ cs.status }}
+                </span>
+            </div>
+            <div class="meta-row">
+                <span><strong>{{ cs.deltas | length }}</strong> deltas</span>
+                <span>Created: <strong>{{ cs.created_at | fmt_dt }}</strong></span>
+                {% if cs.reviewed_at %}
+                    <span>Reviewed: <strong>{{ cs.reviewed_at | fmt_dt }}</strong> by {{ cs.reviewed_by }}</span>
+                {% endif %}
+            </div>
+            <div style="margin-top:8px;">
+                {% set decisions = ['match', 'partial', 'novel', 'conflict', 'supersede'] %}
+                {% for dec in decisions %}
+                    {% set count = cs.deltas | selectattr('decision', 'equalto', dec) | list | length %}
+                    {% if count %}
+                        <span class="badge {{ decision_styles[dec][0] }}">{{ decision_styles[dec][1] }} ×{{ count }}</span>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </a>
+    {% endfor %}
+{% else %}
+    <div class="empty">
+        <h3>No change-sets yet</h3>
+        <p>Run the pipeline to ingest a PDF and generate change-sets for review.</p>
+    </div>
+{% endif %}
+{% endblock %}

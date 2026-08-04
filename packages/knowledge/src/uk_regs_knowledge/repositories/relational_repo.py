@@ -356,6 +356,43 @@ class ChangeSetRepository:
                     ),
                 )
 
+    def review(
+        self,
+        change_set_id: str,
+        decision: str,
+        reviewer: str,
+        notes: str = "",
+    ) -> ChangeSet | None:
+        """
+        Apply a human review decision to a change-set.
+
+        ``decision`` is one of: 'applied' | 'rejected' | 'rolled_back'.
+        Records the reviewer, timestamp, and notes, then returns the updated
+        change-set. Returns ``None`` if the change-set does not exist.
+        """
+        from datetime import UTC, datetime
+
+        valid = {"applied", "rejected", "rolled_back"}
+        if decision not in valid:
+            raise ValueError(f"decision must be one of {valid}, got '{decision}'")
+
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE change_sets
+                SET status = %s, reviewed_by = %s, reviewed_at = %s, review_notes = %s
+                WHERE change_set_id = %s
+                """,
+                (decision, reviewer, datetime.now(UTC), notes, change_set_id),
+            )
+            if cur.rowcount == 0:
+                return None
+
+        return self.list_changes(limit=1000) and next(
+            (cs for cs in self.list_changes(limit=1000) if cs.change_set_id == change_set_id),
+            None,
+        )
+
     def list_changes(
         self,
         *,

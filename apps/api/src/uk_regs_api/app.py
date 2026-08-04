@@ -1,7 +1,7 @@
 """
-FastAPI app — the context-serving API (Phase 3).
+FastAPI app — the context-serving API (Phase 3 + Phase 4B-3a Review UI).
 
-Endpoints:
+JSON API:
   GET /health
   GET /search?q=...&top_k=10
   GET /rules/{rule_id}
@@ -9,7 +9,13 @@ Endpoints:
   GET /figures/{rule_id}
   GET /diff/{rule_id}
   GET /changes?status=&limit=
+  GET /changes/{change_set_id}
+  POST /changes/{change_set_id}/review   (decision, reviewer, notes)
   GET /export/markdown        -> consolidated .cursor/rules + CLAUDE.md export
+
+Review UI (Jinja2 + HTMX, dark professional theme):
+  GET /ui/                            -> dashboard of pending changes
+  GET /ui/changes/{change_set_id}     -> detail with side-by-side diff
 
 Every response carries citations. The app runs with a Mock backend out of the
 box, and auto-upgrades to the Real (Postgres) backend when the DB is reachable.
@@ -17,10 +23,16 @@ box, and auto-upgrades to the Real (Postgres) backend when the DB is reachable.
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Query
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 from uk_regs_api.service import (
     RuleHit,
+    changeset_to_dict,
     changesets_to_dicts,
     get_backend,
     rules_to_dicts,
@@ -32,8 +44,23 @@ app = FastAPI(
         "Semantic search + current-rule + diff + figures + changelog for UK "
         "building regulations. Every response carries citations."
     ),
-    version="0.3.0",
+    version="0.4.0",
 )
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+
+def _fmt_dt(value: datetime | None) -> str:
+    if not value:
+        return "—"
+    try:
+        return value.strftime("%Y-%m-%d %H:%M UTC")
+    except AttributeError:
+        return str(value)
+
+
+templates.env.filters["fmt_dt"] = _fmt_dt
 
 
 # --------------------------------------------------------------------------- #
@@ -134,6 +161,46 @@ def list_changes(
     return {"count": len(css), "change_sets": changesets_to_dicts(css)}
 
 
+@app.get("/changes/{change_set_id}")
+def get_change_set(change_set_id: str) -> dict:
+    """Fetch a single change-set with all its deltas for review."""
+    backend = get_backend()
+    cs = backend.get_change_set(change_set_id)
+    if cs is None:
+        raise HTTPException(status_code=404, detail=f"change-set '{change_set_id}' not found")
+    return changeset_to_dict(cs)
+
+
+# --------------------------------------------------------------------------- #
+#  Review (human-in-the-loop gate)
+# --------------------------------------------------------------------------- #
+_VALID_DECISIONS = {"applied", "rejected", "rolled_back"}
+
+
+@app.post("/changes/{change_set_id}/review")
+def review_change_set(
+    change_set_id: str,
+    decision: str = Form(..., description="applied | rejected | rolled_back"),
+    reviewer: str = Form(...),
+    notes: str = Form(""),
+) -> dict:
+    """
+    Apply a human review decision to a change-set.
+
+    Returns the updated change-set. Used by both the JSON API and the HTMX UI.
+    """
+    if decision not in _VALID_DECISIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"decision must be one of {sorted(_VALID_DECISIONS)}, got '{decision}'",
+        )
+    backend = get_backend()
+    cs = backend.review_change_set(change_set_id, decision, reviewer, notes)
+    if cs is None:
+        raise HTTPException(status_code=404, detail=f"change-set '{change_set_id}' not found")
+    return changeset_to_dict(cs)
+
+
 # --------------------------------------------------------------------------- #
 #  Export — consolidated Markdown for IDE rules (Cursor/Claude/Copilot)
 # --------------------------------------------------------------------------- #
@@ -177,3 +244,103 @@ def export_markdown() -> dict:
         "content": "\n".join(lines),
         "rule_count": len(rules),
     }
+
+
+# =========================================================================== #
+#  Review UI — Jinja2 + HTMX (dark professional theme)
+# =========================================================================== #
+_DECISION_STYLES = {
+    "match": ("badge-match", "Match"),
+    "partial": ("badge-partial", "Amended"),
+    "novel": ("badge-novel", "New"),
+    "conflict": ("badge-conflict", "Conflict"),
+    "supersede": ("badge-supersede", "Superseded"),
+}
+_STATUS_STYLES = {
+    "proposed": "status-proposed",
+    "validated": "status-validated",
+    "applied": "status-applied",
+    "rejected": "status-rejected",
+    "rolled_back": "status-rolled-back",
+}
+
+
+@app.get("/ui/", response_class=HTMLResponse)
+def ui_dashboard(request: Request) -> HTMLResponse:
+    """Dashboard: review queue with stats."""
+    backend = get_backend()
+    all_cs = backend.list_changes(limit=100)
+    counts = {
+        "proposed": sum(1 for c in all_cs if c.status == "proposed"),
+        "applied": sum(1 for c in all_cs if c.status == "applied"),
+        "rejected": sum(1 for c in all_cs if c.status == "rejected"),
+        "rolled_back": sum(1 for c in all_cs if c.status == "rolled_back"),
+        "total": len(all_cs),
+    }
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            "change_sets": all_cs,
+            "counts": counts,
+            "decision_styles": _DECISION_STYLES,
+            "status_styles": _STATUS_STYLES,
+        },
+    )
+
+
+@app.get("/ui/changes/{change_set_id}", response_class=HTMLResponse)
+def ui_change_detail(change_set_id: str, request: Request) -> HTMLResponse:
+    """Detail view: side-by-side deltas with review form."""
+    backend = get_backend()
+    cs = backend.get_change_set(change_set_id)
+    if cs is None:
+        raise HTTPException(status_code=404, detail="change-set not found")
+    # Fetch the new + matched rules for side-by-side display
+    rules = []
+    for d in cs.deltas:
+        new_rule = backend.get_rule(d.new_rule_id)
+        matched_rule = backend.get_rule(d.matched_rule_id) if d.matched_rule_id else None
+        rules.append({"delta": d, "new_rule": new_rule, "matched_rule": matched_rule})
+    return templates.TemplateResponse(
+        request,
+        "detail.html",
+        {
+            "cs": cs,
+            "rules": rules,
+            "decision_styles": _DECISION_STYLES,
+            "status_styles": _STATUS_STYLES,
+        },
+    )
+
+
+@app.post("/ui/changes/{change_set_id}/review", response_class=HTMLResponse)
+def ui_review_submit(
+    change_set_id: str,
+    request: Request,
+    decision: str = Form(...),
+    reviewer: str = Form(...),
+    notes: str = Form(""),
+) -> HTMLResponse:
+    """HTMX endpoint: apply review then re-render the detail page."""
+    backend = get_backend()
+    backend.review_change_set(change_set_id, decision, reviewer, notes)
+    cs = backend.get_change_set(change_set_id)
+    if cs is None:
+        raise HTTPException(status_code=404, detail="change-set not found")
+    rules = []
+    for d in cs.deltas:
+        new_rule = backend.get_rule(d.new_rule_id)
+        matched_rule = backend.get_rule(d.matched_rule_id) if d.matched_rule_id else None
+        rules.append({"delta": d, "new_rule": new_rule, "matched_rule": matched_rule})
+    return templates.TemplateResponse(
+        request,
+        "detail.html",
+        {
+            "cs": cs,
+            "rules": rules,
+            "decision_styles": _DECISION_STYLES,
+            "status_styles": _STATUS_STYLES,
+            "flash": f"Change-set marked as '{decision}'.",
+        },
+    )
