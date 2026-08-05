@@ -1,0 +1,58 @@
+# ============================================================================
+# UK Regs Pipeline — Source Registry
+# ============================================================================
+# Declares every authoritative publisher the monitor should watch.
+# Edit this to add/remove sources, then run:
+#
+#   python -m uk_regs_sourcing --once --registry sources.yaml
+#
+# Each source is polled on its own `poll_interval_minutes`. The monitor only
+# ingests *new* or *changed* documents (diffing on sha256/version/size).
+#
+# Fetcher kinds:
+#   http  — polls a URL (manifest page or JSON index), downloads PDFs
+#   local — scans a directory on disk (for drop-folder workflows)
+#   mock  — returns canned documents (testing only)
+
+sources:
+  # ---- Approved Document B (Fire Safety) -----------------------------------
+  - source_id: gov-uk-adb
+    title: "Approved Document B (Fire Safety) — gov.uk"
+    publisher: gov.uk
+    fetcher: http
+    url: "https://www.gov.uk/government/publications/fire-safety-approved-document-b"
+    doc_type: approved_document
+    poll_interval_minutes: 1440   # daily
+    enabled: true
+
+  # ---- Approved Document K (Means of escape) -------------------------------
+  - source_id: gov-uk-adk
+    title: "Approved Document K (Protection from falling) — gov.uk"
+    publisher: gov.uk
+    fetcher: http
+    url: "https://www.gov.uk/government/publications/protection-from-falling-collision-and-impact-approved-document-k"
+    doc_type: approved_document
+    poll_interval_minutes: 1440
+    enabled: true
+
+  # ---- Building Regulations 2010 (legislation.gov.uk) ----------------------
+  - source_id: legislation-br-2010
+    title: "The Building Regulations 2010 — legislation.gov.uk"
+    publisher: legislation.gov.uk
+    fetcher: http
+    url: "https://www.legislation.gov.uk/uksi/2010/2214/contents"
+    doc_type: regulation
+    poll_interval_minutes: 10080  # weekly
+    enabled: true
+
+  # ---- Local drop-folder (for manually-added PDFs) -------------------------
+  # Drop new PDFs into ./incoming/ and the monitor will ingest them on the next
+  # cycle. Useful for one-off supplements that aren't on a public feed.
+  - source_id: local-drop-folder
+    title: "Local drop-folder (./incoming)"
+    publisher: internal
+    fetcher: local
+    path: "./incoming"
+    doc_type: approved_document
+    poll_interval_minutes: 60
+    enabled: false   # opt-in

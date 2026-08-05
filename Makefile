@@ -12,7 +12,8 @@ VER     ?= "2026-ed1"
 .PHONY: help install hooks up down status logs init-db reset \
         ingest ingest-offline lint fmt test check ci clean \
         api api-mock api-protected api-otel mcp export-rules review \
-        eval eval-offline eval-list
+        eval eval-offline eval-list \
+        source-once source-watch source-list source-poll
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -132,6 +133,21 @@ review:  ## Open the ChangeSet Review UI (HTMX dashboard) in the default browser
 	@command -v xdg-open >/dev/null 2>&1 && xdg-open http://localhost:8000/ui/ || \
 	 command -v open >/dev/null 2>&1 && open http://localhost:8000/ui/ || \
 	 start http://localhost:8000/ui/ || true
+
+# --------------------------------------------------------------------------- #
+#  Source monitoring — auto-ingest new/changed PDFs (Phase 5-1)
+# --------------------------------------------------------------------------- #
+source-list:  ## List configured sources
+	uv run uk-regs-sourcing --once --skip-llm || true
+
+source-once:  ## Run one poll cycle (cron / GHA) — ingests new/changed PDFs
+	uv run uk-regs-sourcing --once --apply
+
+source-watch:  ## Long-running scheduler (polls every $(INTERVAL) min)
+	uv run uk-regs-sourcing --interval 60 --apply
+
+source-poll:  ## Trigger a poll via the API (needs `make api` running)
+	@curl -s -X POST "http://localhost:8000/sources/poll?force=true" | python -m json.tool
 
 # --------------------------------------------------------------------------- #
 #  Misc

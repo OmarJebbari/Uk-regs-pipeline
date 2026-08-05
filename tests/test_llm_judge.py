@@ -110,7 +110,9 @@ class TestRubricJudgePositive:
         assert score.overall > 0.5
 
     def test_exact_copy_scores_high(self):
-        case = _make_case(generated="The minimum width of an escape stair shall be 1100 mm. (ESC-110)")
+        case = _make_case(
+            generated="The minimum width of an escape stair shall be 1100 mm. (ESC-110)"
+        )
         score = RubricJudge().score(case)
         assert score.faithfulness >= 0.7
 

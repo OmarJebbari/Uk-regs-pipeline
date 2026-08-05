@@ -21,6 +21,7 @@ members = [
     "uk-regs-mcp-server",
     "uk-regs-pipeline",
     "uk-regs-reconcile",
+    "uk-regs-sourcing",
 ]
 
 [[package]]
@@ -2445,6 +2446,7 @@ dependencies = [
     { name = "uk-regs-knowledge" },
     { name = "uk-regs-mcp-server" },
     { name = "uk-regs-reconcile" },
+    { name = "uk-regs-sourcing" },
 ]
 
 [package.dev-dependencies]
@@ -2466,6 +2468,7 @@ requires-dist = [
     { name = "uk-regs-knowledge", editable = "packages/knowledge" },
     { name = "uk-regs-mcp-server", editable = "apps/mcp_server" },
     { name = "uk-regs-reconcile", editable = "packages/reconciliation" },
+    { name = "uk-regs-sourcing", editable = "packages/sourcing" },
 ]
 
 [package.metadata.requires-dev]
@@ -2490,6 +2493,25 @@ dependencies = [
 requires-dist = [
     { name = "uk-regs-core", editable = "packages/core" },
     { name = "uk-regs-extraction", editable = "packages/extraction" },
+]
+
+[[package]]
+name = "uk-regs-sourcing"
+version = "0.1.0"
+source = { editable = "packages/sourcing" }
+dependencies = [
+    { name = "pyyaml" },
+    { name = "uk-regs-core" },
+    { name = "uk-regs-ingest" },
+    { name = "uk-regs-knowledge" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "uk-regs-core", editable = "packages/core" },
+    { name = "uk-regs-ingest", editable = "pipelines/ingest" },
+    { name = "uk-regs-knowledge", editable = "packages/knowledge" },
 ]
 
 [[package]]

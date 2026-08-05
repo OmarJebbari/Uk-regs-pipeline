@@ -185,6 +185,7 @@ uk-regs-pipeline/
 │  ├─ extraction/     # PDF parsing, deterministic extractors, LLM rule extractor, VLM figures
 │  ├─ knowledge/      # object store, relational + graph repos, embeddings, schema.sql
 │  ├─ reconciliation/ # matchers + supersession engine (the "update memory" heart)
+│  ├─ sourcing/       # source monitoring: fetchers, diff engine, scheduler, state store
 │  └─ evals/          # golden datasets, metrics, harnesses, `uk-regs-eval` CLI
 ├─ pipelines/
 │  └─ ingest/         # orchestrator + CLI (`uk-regs-ingest`)
@@ -326,6 +327,65 @@ make api-otel   # start the API with OTel traces → your collector
 
 ---
 
+## Source monitoring & auto-ingestion (Phase 5-1)
+
+The pipeline ships a **source monitor** that watches authoritative publishers
+(e.g. gov.uk planning portal) and automatically ingests new/changed PDFs the
+moment they appear — so the "current truth" stays in sync without manual
+intervention.
+
+### How it works
+
+1. **Sources are declared** in `sources.yaml` (publisher → URL/path → poll interval).
+2. A **fetcher** (`http` / `local` / `mock`) lists the documents a source publishes.
+3. The **diff engine** compares against seen-state (`sha256` + `version` + `size`)
+   and decides: `ingest` (new), `update` (changed), or `skip` (unchanged).
+4. New/changed PDFs are streamed into the **existing ingest pipeline** →
+   reconciliation → change-set. The state store is updated.
+5. Polling is throttled per-source via `poll_interval_minutes` to avoid hammering publishers.
+
+### Run it
+
+```bash
+# One-shot poll cycle (cron / GitHub Actions):
+make source-once
+
+# Long-running scheduler (polls every 60 min):
+make source-watch
+
+# Trigger a poll via the API:
+make source-poll   # POST /sources/poll?force=true
+```
+
+### Declare a new source
+
+Edit `sources.yaml`:
+
+```yaml
+sources:
+  - source_id: gov-uk-adb
+    title: "Approved Document B (Fire Safety)"
+    publisher: gov.uk
+    fetcher: http
+    url: "https://assets.publishing.service.gov.uk/.../adb.pdf"
+    poll_interval_minutes: 1440   # daily
+    enabled: true
+```
+
+Three fetcher kinds are supported:
+- **`http`** — polls a URL (manifest page or direct PDF link).
+- **`local`** — scans a directory for new PDFs (drop-folder / network share).
+- **`mock`** — in-memory, for tests.
+
+### API surface
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/sources` | GET | List all watched sources + seen-document counts + last-poll time |
+| `/sources/poll` | POST | Trigger a poll cycle (optional `?force=true` to ignore intervals) |
+
+---
+
 ## How "memory + update" works
 
 Each extracted rule is a **typed Pydantic object** with provenance and bitemporal fields.
@@ -447,6 +507,13 @@ the full test suite locally — so a broken commit never reaches CI.
   - [x] **4B‑3a · Review UI** ✅ — Dark-themed ChangeSet review dashboard (Jinja2 + HTMX): live status counts, side-by-side delta diffs, inline apply/reject/rollback with HTMX partial re-render. New `make review` target opens it in the browser.
   - [x] **4B‑3b · Auth & observability** ✅ — API key gating on mutating routes, structlog structured logging (JSON/console), OpenTelemetry tracing (opt-in), Langfuse LLM tracing (opt-in), `/healthz` + `/readyz` probes, request-id propagation. All degrade gracefully when unset.
 - [ ] **Phase 5** — Scheduling/source monitoring, hybrid search, dashboards
+  - [x] **5‑1 · Source monitoring & auto-ingestion** ✅ — Pluggable source monitor
+    (`sources.yaml`) with `http` / `local` / `mock` fetchers, a diff engine
+    (sha256 + version + size), APScheduler loop (`--once` / `--watch`),
+    `source_documents` state table, and `/sources` + `/sources/poll` API endpoints.
+    New/changed PDFs flow straight into the existing ingest pipeline.
+  - [ ] Hybrid search (BM25 + vector)
+  - [ ] Ops dashboards
 
 ---
 

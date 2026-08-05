@@ -275,7 +275,9 @@ class EvalReport:
     llm_judge: SuiteReport | None = None
 
     def all_reports(self) -> list[SuiteReport]:
-        return [r for r in (self.retrieval, self.reconciliation, self.extraction, self.llm_judge) if r]
+        return [
+            r for r in (self.retrieval, self.reconciliation, self.extraction, self.llm_judge) if r
+        ]
 
     @property
     def overall_accuracy(self) -> float:

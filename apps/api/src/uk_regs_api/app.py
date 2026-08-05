@@ -279,6 +279,88 @@ def export_markdown() -> dict:
 
 
 # =========================================================================== #
+#  Source monitoring (Phase 5-1)
+# =========================================================================== #
+@app.get("/sources")
+def list_sources() -> dict:
+    """
+    List configured sources and their last-poll status.
+
+    Reads from the source registry + the ``source_poll_state`` table (or the
+    in-memory store in dev). Use this to monitor ingestion health.
+    """
+    try:
+        from uk_regs_sourcing.registry import load_registry
+        from uk_regs_sourcing.state import get_state_store
+
+        registry = load_registry()
+        store = get_state_store()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"sourcing subsystem unavailable: {exc.__class__.__name__}",
+        ) from exc
+
+    out = []
+    for s in registry.sources:
+        last = store.last_poll(s.source_id)
+        seen = store.get_seen(s.source_id)
+        out.append(
+            {
+                "source_id": s.source_id,
+                "title": s.title,
+                "publisher": s.publisher,
+                "fetcher": s.fetcher,
+                "enabled": s.enabled,
+                "poll_interval_minutes": s.poll_interval_minutes,
+                "doc_type": s.doc_type,
+                "documents_seen": len(seen),
+                "last_polled_at": last.isoformat() if last else None,
+            }
+        )
+    return {"count": len(out), "sources": out}
+
+
+@app.post("/sources/poll")
+def trigger_poll(
+    force: bool = Query(False, description="Ignore poll intervals"),
+    apply: bool = Query(False, description="Auto-apply change-sets"),
+) -> dict:
+    """
+    Trigger a manual poll cycle (synchronous). Auth-protected via API key.
+
+    Returns a summary of what was ingested. Intended for ops dashboards and
+    "I just dropped a PDF, ingest it now" workflows.
+    """
+    try:
+        from uk_regs_sourcing.scheduler import run_once
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"sourcing subsystem unavailable: {exc.__class__.__name__}",
+        ) from exc
+
+    cycle = run_once(force=force, apply=apply)
+    return {
+        "started_at": cycle.started_at.isoformat(),
+        "finished_at": cycle.finished_at.isoformat() if cycle.finished_at else None,
+        "total_ingested": cycle.total_ingested,
+        "sources": [
+            {
+                "source_id": s.source_id,
+                "advertised": s.advertised,
+                "new": s.new,
+                "updated": s.updated,
+                "skipped": s.skipped,
+                "failed": s.failed,
+                "errors": s.errors,
+            }
+            for s in cycle.sources
+        ],
+    }
+
+
+# =========================================================================== #
 #  Review UI — Jinja2 + HTMX (dark professional theme)
 # =========================================================================== #
 _DECISION_STYLES = {

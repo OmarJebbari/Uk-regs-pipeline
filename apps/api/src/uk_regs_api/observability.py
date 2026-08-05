@@ -23,6 +23,7 @@ from uk_regs_core import get_settings
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+
 # --------------------------------------------------------------------------- #
 #  Structured logging (structlog)
 # --------------------------------------------------------------------------- #
@@ -48,9 +49,7 @@ def setup_logging() -> None:
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, settings.log_level)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, settings.log_level)),
         cache_logger_on_first_use=True,
     )
 
@@ -136,14 +135,10 @@ def setup_tracing(app: FastAPI) -> None:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    resource = Resource.create(
-        {"service.name": settings.otel_service_name}
-    )
+    resource = Resource.create({"service.name": settings.otel_service_name})
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(
-        BatchSpanProcessor(
-            OTLPSpanExporter(endpoint=settings.otel_exporter_otlp_endpoint)
-        )
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.otel_exporter_otlp_endpoint))
     )
     trace.set_tracer_provider(provider)
     FastAPIInstrumentor.instrument_app(app)

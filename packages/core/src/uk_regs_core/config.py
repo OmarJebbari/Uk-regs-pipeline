@@ -73,8 +73,7 @@ class Settings(BaseSettings):
     # ---- API auth ----
     api_key: str | None = Field(
         default=None,
-        description="If set, mutating routes require X-API-Key header. "
-        "Unset = open (dev mode).",
+        description="If set, mutating routes require X-API-Key header. Unset = open (dev mode).",
     )
 
     # ---- Logging (structlog) ----

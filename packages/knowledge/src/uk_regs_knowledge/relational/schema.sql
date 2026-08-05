@@ -123,3 +123,32 @@ CREATE TABLE IF NOT EXISTS audit_events (
     payload   JSONB NOT NULL DEFAULT '{}'::jsonb,
     at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---- Source monitoring (auto-ingestion) ------------------------------------
+-- Tracks which documents the sourcing monitor has already seen/ingested, per
+-- source. Enables diffing so only new/changed PDFs are re-ingested.
+CREATE TABLE IF NOT EXISTS source_documents (
+    source_id        TEXT NOT NULL,
+    document_id      TEXT NOT NULL,
+    version          TEXT NOT NULL,
+    title            TEXT NOT NULL,
+    url              TEXT NOT NULL,
+    sha256           TEXT,
+    size_bytes       BIGINT,
+    published_at     TIMESTAMPTZ,
+    first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_checked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status           TEXT NOT NULL DEFAULT 'ingested',
+    PRIMARY KEY (source_id, document_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_documents_status ON source_documents (status);
+
+-- Per-source poll timestamps (for throttle/throttle decisions).
+CREATE TABLE IF NOT EXISTS source_poll_state (
+    source_id        TEXT PRIMARY KEY,
+    last_polled_at   TIMESTAMPTZ NOT NULL,
+    last_status      TEXT,
+    last_error       TEXT,
+    last_ingested    INT NOT NULL DEFAULT 0
+);
