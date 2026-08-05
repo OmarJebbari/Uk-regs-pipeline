@@ -192,20 +192,75 @@ class RuleRepository:
             return [self._row_to_rule(r) for r in cur.fetchall()]
 
     def search_semantic(self, query_vec: list[float], top_k: int = 10) -> list[tuple[Rule, float]]:
-        """Hybrid-ready: pure semantic via pgvector."""
+        """
+        Pure semantic search via pgvector cosine distance.
+
+        Returns ``(Rule, score)`` where *score* is in ``[0, 1]``:
+        ``1 - cosine_distance`` (so 1.0 = identical, 0.0 = orthogonal).
+        Normalised here so both legs of hybrid search are on the same scale.
+        """
         with self._conn() as c, c.cursor() as cur:
             cur.execute(
                 """
-                SELECT *, embedding <=> %s::vector AS distance
+                SELECT *, 1 - (embedding <=> %s::vector) AS score
                 FROM rules
-                WHERE status = 'active'
+                WHERE status = 'active' AND embedding IS NOT NULL
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
                 (query_vec, query_vec, top_k),
             )
             rows = cur.fetchall()
-        return [(self._row_to_rule(r), r[-1]) for r in rows]
+        return [(self._row_to_rule(r), float(r[-1])) for r in rows]
+
+    def search_bm25(self, query: str, top_k: int = 10) -> list[tuple[Rule, float]]:
+        """
+        Keyword leg of hybrid search — PostgreSQL native full-text search.
+
+        Uses the generated ``tsv`` column + ``ts_rank_cd`` (coverage-density
+        ranking, the closest Postgres-native approximation of BM25) over a
+        weighted tsvector (title A > text B > normalized_form C). The raw
+        ``ts_rank_cd`` is unbounded, so scores are min-max normalised to
+        ``[0, 1]`` within the result set before return.
+
+        Falls back to ``search_fulltext`` (ILIKE) if the ``tsv`` column is not
+        present (older deployments) so search never hard-fails mid-migration.
+        """
+        like = f"%{query.lower()}%"
+        with self._conn() as c, c.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT *, ts_rank_cd(tsv, plainto_tsquery('english', %s)) AS rank
+                    FROM rules
+                    WHERE status = 'active'
+                      AND tsv @@ plainto_tsquery('english', %s)
+                    ORDER BY rank DESC
+                    LIMIT %s
+                    """,
+                    (query, query, top_k),
+                )
+                rows = cur.fetchall()
+            except Exception:
+                # tsv column missing (pre-migration DB) -> ILIKE fallback.
+                cur.execute(
+                    """
+                    SELECT *,
+                           (text ILIKE %s)::int + (title ILIKE %s)::int * 2
+                             + (normalized_form ILIKE %s)::int AS rank
+                    FROM rules
+                    WHERE status = 'active'
+                      AND (text ILIKE %s OR title ILIKE %s OR normalized_form ILIKE %s)
+                    ORDER BY rank DESC
+                    LIMIT %s
+                    """,
+                    (like, like, like, like, like, like, top_k),
+                )
+                rows = cur.fetchall()
+        if not rows:
+            return []
+        max_rank = max(float(r[-1]) for r in rows) or 1.0
+        return [(self._row_to_rule(r), float(r[-1]) / max_rank) for r in rows]
 
     def get_rule_by_id(self, rule_id: str) -> Rule | None:
         """Fetch a single rule by its stable id (any status/version)."""

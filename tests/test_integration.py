@@ -196,3 +196,39 @@ def test_full_pipeline_extrac_to_serve():
 
     client = TestClient(app)
     assert client.get("/current").json()["count"] >= 1
+
+
+def test_phase5_hybrid_search_modes():
+    """
+    Phase 5-2: the /search endpoint accepts a `mode` query param and
+    returns results for all three modes (hybrid, semantic, keyword).
+
+    The mock backend has no vector index, so all modes degrade to keyword
+    scoring — but the contract (param accepted, response shape correct,
+    valid mode echoed back) must hold.
+    """
+    from fastapi.testclient import TestClient
+    from uk_regs_api.app import app
+
+    client = TestClient(app)
+
+    # Default (hybrid)
+    r = client.get("/search", params={"q": "fire door", "top_k": 3})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "hybrid"
+    assert "hits" in body
+
+    # Explicit keyword
+    r = client.get("/search", params={"q": "fire door", "mode": "keyword"})
+    assert r.status_code == 200
+    assert r.json()["mode"] == "keyword"
+
+    # Explicit semantic (mock degrades to keyword, but must not error)
+    r = client.get("/search", params={"q": "fire door", "mode": "semantic"})
+    assert r.status_code == 200
+
+    # Invalid mode → 400
+    r = client.get("/search", params={"q": "fire door", "mode": "bogus"})
+    assert r.status_code == 400
+    assert "mode must be one of" in r.json()["detail"]

@@ -70,6 +70,21 @@ class Settings(BaseSettings):
     )
     reconciliation_top_k: int = 5
 
+    # ---- Hybrid search (Phase 5-2) ----
+    # Default search mode for the API / MCP server. 'hybrid' fuses BM25 + vector
+    # via Reciprocal Rank Fusion; 'semantic' / 'keyword' use one leg only.
+    search_mode: Literal["hybrid", "semantic", "keyword"] = "hybrid"
+    # RRF smoothing constant. Higher = flatter rank distribution. 60 is the
+    # literature default (Cormack et al., 2009).
+    search_rrf_k: int = Field(default=60, ge=1)
+    # Per-leg candidate fetch depth. Each leg retrieves this many candidates
+    # before RRF re-ranks and truncates to `top_k`. Higher = better recall,
+    # more DB work.
+    search_candidate_k: int = Field(default=50, ge=1, le=500)
+    # Minimum fused score to return a hit (filters noise). 0.0 returns all;
+    # 1/(rrf_k+1) is roughly the score of a result ranked #1 in one leg only.
+    search_min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+
     # ---- API auth ----
     api_key: str | None = Field(
         default=None,

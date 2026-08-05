@@ -62,3 +62,60 @@ cases:
     expected_rule_ids: [rule-fire-001]
     expected_category: fire
     note: "Paraphrase with synonyms ('protection' ~ 'resistance')."
+
+  # ----------------------------------------------------------------------- #
+  #  Phase 5-2: BM25 / keyword-recall cases (exact identifiers & standards)  #
+  #  These specifically stress the keyword leg — semantic embeddings often   #
+  #  miss exact codes/numbers that BM25 nails.                               #
+  # ----------------------------------------------------------------------- #
+  - id: ret-009
+    query: "FD30"
+    expected_rule_ids: [rule-fire-001]
+    expected_category: fire
+    note: "Exact code lookup — pure BM25 strength."
+
+  - id: ret-010
+    query: "BS 476-22"
+    expected_rule_ids: [rule-fire-001]
+    expected_category: fire
+    note: "British Standard reference number — keyword only."
+
+  - id: ret-011
+    query: "BS EN 1634-1"
+    expected_rule_ids: [rule-fire-001]
+    expected_category: fire
+    note: "European standard reference — keyword only."
+
+  - id: ret-012
+    query: "1200 mm escape"
+    expected_rule_ids: [rule-struct-001]
+    expected_category: structure
+    note: "Numeric + noun — keyword leg."
+
+  - id: ret-013
+    query: "5000 mm2"
+    expected_rule_ids: [rule-vent-001]
+    expected_category: ventilation
+    note: "Numeric-only query — keyword leg."
+
+  # ----------------------------------------------------------------------- #
+  #  Hybrid stress cases — queries where both legs return different docs.    #
+  #  These verify RRF fusion produces the union without losing recall.       #
+  # ----------------------------------------------------------------------- #
+  - id: ret-014
+    query: "minimum rating for doors in a fire escape stairwell"
+    expected_rule_ids: [rule-fire-001]
+    expected_category: fire
+    note: "Hybrid — 'minimum rating' (semantic) + 'doors' (keyword)."
+
+  - id: ret-015
+    query: "habitable room air flow background opening 5000"
+    expected_rule_ids: [rule-vent-001]
+    expected_category: ventilation
+    note: "Hybrid — semantic 'air flow' + keyword '5000'."
+
+  - id: ret-016
+    query: "occupants width clear 60"
+    expected_rule_ids: [rule-struct-001]
+    expected_category: structure
+    note: "Hybrid — semantic 'occupants width' + keyword '60'."

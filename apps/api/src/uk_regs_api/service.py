@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from uk_regs_core import (
     Category,
@@ -25,6 +25,9 @@ from uk_regs_core import (
     RuleStatus,
 )
 from uk_regs_core.enums import Decision
+
+# Search mode: hybrid (RRF fusion), semantic (vector only), keyword (BM25 only).
+SearchMode = Literal["hybrid", "semantic", "keyword"]
 
 
 # --------------------------------------------------------------------------- #
@@ -49,7 +52,9 @@ class RuleHit:
 #  Backend protocol
 # --------------------------------------------------------------------------- #
 class ContextBackend(Protocol):
-    def search(self, query: str, top_k: int = 10) -> list[RuleHit]: ...
+    def search(
+        self, query: str, top_k: int = 10, mode: SearchMode = "hybrid"
+    ) -> list[RuleHit]: ...
 
     def get_rule(self, rule_id: str) -> Rule | None: ...
 
@@ -66,6 +71,96 @@ class ContextBackend(Protocol):
     ) -> ChangeSet | None: ...
 
     def diff(self, rule_id: str) -> dict: ...
+
+
+# --------------------------------------------------------------------------- #
+#  Hybrid search — Reciprocal Rank Fusion (Phase 5-2)
+# --------------------------------------------------------------------------- #
+class HybridSearcher:
+    """
+    Fuses BM25 (keyword) + vector (semantic) results via Reciprocal Rank
+    Fusion (RRF).
+
+    RRF is score-agnostic: it only cares about the *rank* of each result in
+    each leg, which sidesteps the incomparable-score problem (BM25 ts_rank_cd
+    is unbounded; cosine similarity is in [0, 1]). The fused score for a
+    document that appears at rank ``r1`` in the keyword leg and ``r2`` in the
+    semantic leg (1-indexed; missing = infinity) is::
+
+        score = 1/(k + r1) + 1/(k + r2)
+
+    where ``k`` is a smoothing constant (default 60, Cormack et al. 2009).
+
+    The searcher is injected with two callables — ``semantic_fn`` and
+    ``keyword_fn`` — each returning ``list[tuple[Rule, float]]`` with scores
+    already normalised to ``[0, 1]``. This keeps the fusion logic pure and
+    trivially unit-testable without a database.
+    """
+
+    def __init__(
+        self,
+        semantic_fn,
+        keyword_fn,
+        *,
+        rrf_k: int = 60,
+        candidate_k: int = 50,
+        min_score: float = 0.0,
+    ) -> None:
+        self._semantic_fn = semantic_fn
+        self._keyword_fn = keyword_fn
+        self.rrf_k = rrf_k
+        self.candidate_k = candidate_k
+        self.min_score = min_score
+
+    def search(
+        self, query: str, query_vec: list[float] | None, *, top_k: int = 10, mode: SearchMode = "hybrid"
+    ) -> list[RuleHit]:
+        k = max(top_k, self.candidate_k)
+
+        if mode == "semantic":
+            if query_vec is None:
+                return []
+            rows = self._semantic_fn(query_vec, top_k=k)
+            return [RuleHit(r, s) for r, s in rows[:top_k]]
+
+        if mode == "keyword":
+            rows = self._keyword_fn(query, top_k=k)
+            return [RuleHit(r, s) for r, s in rows[:top_k]]
+
+        # ---- hybrid: RRF fusion ----
+        sem_rows: list[tuple[Rule, float]] = []
+        if query_vec is not None:
+            try:
+                sem_rows = self._semantic_fn(query_vec, top_k=k)
+            except Exception:
+                sem_rows = []
+
+        try:
+            kw_rows = self._keyword_fn(query, top_k=k)
+        except Exception:
+            kw_rows = []
+
+        # Build rank maps (1-indexed).
+        sem_rank = {r.rule_id: i + 1 for i, (r, _) in enumerate(sem_rows)}
+        kw_rank = {r.rule_id: i + 1 for i, (r, _) in enumerate(kw_rows)}
+
+        # Union of rule_ids, keep a reference rule object per id.
+        rule_by_id: dict[str, Rule] = {}
+        for r, _ in sem_rows + kw_rows:
+            rule_by_id.setdefault(r.rule_id, r)
+
+        fused: list[tuple[Rule, float]] = []
+        for rid, rule in rule_by_id.items():
+            score = 0.0
+            if rid in sem_rank:
+                score += 1.0 / (self.rrf_k + sem_rank[rid])
+            if rid in kw_rank:
+                score += 1.0 / (self.rrf_k + kw_rank[rid])
+            if score >= self.min_score:
+                fused.append((rule, score))
+
+        fused.sort(key=lambda rs: rs[1], reverse=True)
+        return [RuleHit(r, s) for r, s in fused[:top_k]]
 
 
 # --------------------------------------------------------------------------- #
@@ -105,19 +200,51 @@ class RealBackend:
                 self._embedder = "unavailable"
         return self._embedder
 
-    def search(self, query: str, top_k: int = 10) -> list[RuleHit]:
+    def search(
+        self, query: str, top_k: int = 10, mode: SearchMode = "hybrid"
+    ) -> list[RuleHit]:
+        """
+        Hybrid search over the rules table.
+
+        ``mode``:
+          - ``hybrid`` (default): fuse BM25 + vector via RRF
+          - ``semantic``: vector cosine only
+          - ``keyword``: BM25 full-text only
+
+        Falls back gracefully: if embeddings are unavailable, every mode
+        degrades to keyword (BM25/ILIKE) so search never hard-fails.
+        """
         self._ensure()
+
+        from uk_regs_core.config import get_settings
+
+        s = get_settings()
+
+        # Embed the query once (used by hybrid + semantic).
+        query_vec: list[float] | None = None
         emb = self._get_embedder()
         if emb and emb != "unavailable":
             try:
-                vec = emb.embed_text(query)
-                rows = self._rules.search_semantic(vec, top_k=top_k)
-                return [RuleHit(r, 1.0 - d) for r, d in rows]
+                query_vec = emb.embed_text(query)
             except Exception:
-                pass  # fall through to fulltext
-        # fulltext fallback
-        rows = self._rules.search_fulltext(query, top_k=top_k)
-        return [RuleHit(r, s) for r, s in rows]
+                query_vec = None
+
+        # No embeddings → force keyword mode regardless of `mode`.
+        if query_vec is None and mode != "keyword":
+            effective_mode: SearchMode = "keyword"
+        else:
+            effective_mode = mode
+
+        searcher = HybridSearcher(
+            semantic_fn=self._rules.search_semantic,
+            keyword_fn=self._rules.search_bm25,
+            rrf_k=s.search_rrf_k,
+            candidate_k=s.search_candidate_k,
+            min_score=s.search_min_score,
+        )
+        return searcher.search(
+            query, query_vec, top_k=top_k, mode=effective_mode
+        )
 
     def get_rule(self, rule_id: str) -> Rule | None:
         self._ensure()
@@ -372,14 +499,19 @@ class MockBackend:
 
     def _score(self, query: str, rule: Rule) -> float:
         q = query.lower()
-        haystack = f"{rule.title or ''} {rule.text} {rule.normalized_form}".lower()
+        refs = " ".join(rule.references or [])
+        haystack = f"{rule.title or ''} {rule.text} {rule.normalized_form} {refs}".lower()
         if not q:
             return 0.0
         terms = q.split()
         hits = sum(1 for t in terms if t in haystack)
         return hits / max(len(terms), 1)
 
-    def search(self, query: str, top_k: int = 10) -> list[RuleHit]:
+    def search(
+        self, query: str, top_k: int = 10, mode: SearchMode = "hybrid"
+    ) -> list[RuleHit]:
+        # Mock has no vector index; keyword scoring is the only leg available.
+        # We accept `mode` for Protocol conformance but always rank by keywords.
         scored = [(r, self._score(query, r)) for r in self._rules]
         scored = [(r, s) for r, s in scored if s > 0] or [(r, 0.0) for r in self._rules[:top_k]]
         scored.sort(key=lambda rs: rs[1], reverse=True)

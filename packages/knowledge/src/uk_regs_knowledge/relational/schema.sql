@@ -63,6 +63,20 @@ CREATE INDEX IF NOT EXISTS idx_rules_category      ON rules (category);
 CREATE INDEX IF NOT EXISTS idx_rules_refs          ON rules USING GIN (references);
 CREATE INDEX IF NOT EXISTS idx_rules_embedding     ON rules USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
+-- ---- Full-text search column (Phase 5-2: hybrid BM25 + vector) ------------
+-- Generated STORED column: self-maintaining on INSERT/UPDATE. PostgreSQL 12+
+-- (pgvector requires 13+ so this is always safe). Powers the keyword leg of
+-- Reciprocal Rank Fusion via ts_rank_cd (coverage-density ranking, the closest
+-- PostgreSQL-native equivalent to BM25).
+ALTER TABLE rules ADD COLUMN IF NOT EXISTS tsv tsvector
+    GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(text, '')), 'B') ||
+        setweight(to_tsvector('english', coalesce(normalized_form, '')), 'C')
+    ) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_rules_tsv ON rules USING GIN (tsv);
+
 -- ---- Figures ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS figures (
     figure_id          TEXT PRIMARY KEY,

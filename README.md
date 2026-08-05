@@ -386,6 +386,76 @@ Three fetcher kinds are supported:
 
 ---
 
+## Hybrid search (BM25 + Vector) — Phase 5-2
+
+The context-serving API supports **three retrieval modes** so you get the
+best of both worlds: dense semantic similarity for paraphrased intent, and
+sparse keyword matching for exact codes, standards numbers, and dimensions.
+
+| Mode | Legs used | Best for |
+|---|---|---|
+| `hybrid` *(default)* | BM25 **+** pgvector, fused via **Reciprocal Rank Fusion** | General queries mixing concepts + identifiers |
+| `semantic` | pgvector only (cosine similarity) | Paraphrased / conceptual queries ("how wide does an escape route need to be?") |
+| `keyword` | BM25 only (`tsvector` + `ts_rank`) | Exact lookups ("FD30", "BS 476-22", "5000 mm²") |
+
+### Why hybrid?
+
+Pure semantic embeddings are great at *intent* but surprisingly bad at
+matching exact codes — `FD30` and `FD60` embed nearly identically, and
+"BS 476-22" is opaque to a language model. Conversely, pure BM25 misses
+synonyms and paraphrases. **RRF** combines both rankings without needing
+calibrated scores:
+
+```
+RRF_score(doc) = Σ  1 / (k + rank_i(doc))
+```
+
+where `k` is a smoothing constant (default `60`, per Cormack et al. 2009)
+and `rank_i` is the document's 1-based rank in each leg. Documents that
+appear in **both** legs get a higher fused score than single-leg hits.
+
+### API
+
+```bash
+# Default (hybrid):
+curl "http://localhost:8000/search?q=fire+door+FD30&top_k=5"
+
+# Keyword-only (fastest, best for exact codes):
+curl "http://localhost:8000/search?q=BS+476-22&mode=keyword"
+
+# Semantic-only (pure vector):
+curl "http://localhost:8000/search?q=how+wide+escape+route&mode=semantic"
+```
+
+Response includes the `mode` used and per-hit scores:
+
+```json
+{
+  "query": "fire door FD30",
+  "mode": "hybrid",
+  "count": 3,
+  "hits": [
+    {"rule_id": "rule-fire-001", "score": 0.032, "text": "...", "citation": {...}}
+  ]
+}
+```
+
+### Tuning
+
+| Env var | Default | Effect |
+|---|---|---|
+| `SEARCH_RRF_K` | `60` | Higher → more weight to rank position. Lower → more democratic. |
+| `SEARCH_CANDIDATE_K` | `50` | How many candidates each leg pulls *before* fusion. Must be ≥ `top_k`. |
+| `SEARCH_MIN_SCORE` | `0.0` | Drops fused hits below this score (raises precision; `0.0` = keep all). |
+
+### Graceful degradation
+
+If the embedding service is unavailable (no `OPENAI_API_KEY`, embedder
+down), `hybrid` mode automatically falls back to the keyword leg only —
+the API never crashes because of a missing vector index.
+
+---
+
 ## How "memory + update" works
 
 Each extracted rule is a **typed Pydantic object** with provenance and bitemporal fields.
@@ -464,6 +534,9 @@ All config is 12-factor via `.env` (see `.env.example`), parsed by
 | `LOG_FORMAT` | `console` | `json` (prod) or `console` (dev, colored) via structlog |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | OTLP collector URL. Unset = tracing disabled. |
 | `LANGFUSE_PUBLIC_KEY` | *(unset)* | Langfuse LLM tracing. Unset = disabled. |
+| `SEARCH_RRF_K` | `60` | RRF smoothing constant for hybrid search. |
+| `SEARCH_CANDIDATE_K` | `50` | Candidates per leg before fusion (≥ `top_k`). |
+| `SEARCH_MIN_SCORE` | `0.0` | Minimum fused score to include a result. |
 
 ---
 
@@ -512,7 +585,11 @@ the full test suite locally — so a broken commit never reaches CI.
     (sha256 + version + size), APScheduler loop (`--once` / `--watch`),
     `source_documents` state table, and `/sources` + `/sources/poll` API endpoints.
     New/changed PDFs flow straight into the existing ingest pipeline.
-  - [ ] Hybrid search (BM25 + vector)
+  - [x] **5‑2 · Hybrid search (BM25 + vector)** ✅ — Reciprocal Rank Fusion
+    of a Postgres `tsvector` (BM25/ts_rank) leg and a pgvector (cosine)
+    leg. Three modes via `/search?mode=hybrid|semantic|keyword`.
+    Configurable `SEARCH_RRF_K`, `SEARCH_CANDIDATE_K`, `SEARCH_MIN_SCORE`.
+    Graceful degradation when embeddings are unavailable.
   - [ ] Ops dashboards
 
 ---

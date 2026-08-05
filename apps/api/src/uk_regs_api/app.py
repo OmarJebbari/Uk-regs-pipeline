@@ -110,12 +110,37 @@ def readyz(response: Response) -> dict:
 def search(
     q: str = Query(..., description="Natural-language query, e.g. 'fire door rating'"),
     top_k: int = Query(10, ge=1, le=50),
+    mode: str = Query(
+        "hybrid",
+        description="hybrid (BM25 + vector via RRF, default) | semantic "
+        "(vector only) | keyword (BM25 only)",
+    ),
 ) -> dict:
-    """Semantic search over current active rules. Falls back to fulltext."""
+    """
+    Hybrid search over current active rules (Phase 5-2).
+
+    ``mode`` controls the retrieval strategy:
+      - **hybrid** *(default)*: fuses BM25 keyword + vector semantic results
+        via Reciprocal Rank Fusion. Best recall.
+      - **semantic**: vector cosine similarity only. Best for paraphrases /
+        concept queries.
+      - **keyword**: BM25 full-text only. Best for exact-term / identifier
+        queries (e.g. "FD30", "BS 476-22").
+
+    Falls back to keyword if embeddings are unavailable, so search never
+    hard-fails.
+    """
+    valid_modes = {"hybrid", "semantic", "keyword"}
+    if mode not in valid_modes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"mode must be one of {sorted(valid_modes)}, got '{mode}'",
+        )
     backend = get_backend()
-    hits: list[RuleHit] = backend.search(q, top_k=top_k)
+    hits: list[RuleHit] = backend.search(q, top_k=top_k, mode=mode)  # type: ignore[call-arg]
     return {
         "query": q,
+        "mode": mode,
         "count": len(hits),
         "hits": [h.to_dict() for h in hits],
     }
