@@ -38,19 +38,23 @@ def _make_rules(*ids: str) -> list[FakeRule]:
 def make_semantic_fn(ranked_ids: list[str]):
     """Returns a semantic leg that always returns these ids (score=0.9 descending)."""
     base = 0.9
+
     def fn(query_vec, top_k=10):
         rules = _make_rules(*ranked_ids[:top_k])
         scores = [round(base - i * 0.05, 3) for i in range(len(rules))]
         return list(zip(rules, scores, strict=False))
+
     return fn
 
 
 def make_keyword_fn(ranked_ids: list[str]):
     """Returns a keyword leg that always returns these ids (score by ts_rank)."""
+
     def fn(query, top_k=10):
         rules = _make_rules(*ranked_ids[:top_k])
         scores = [round(1.0 - i * 0.1, 3) for i in range(len(rules))]
         return list(zip(rules, scores, strict=False))
+
     return fn
 
 
@@ -110,8 +114,8 @@ class TestHybridMode:
 
     def test_doc_in_both_legs_ranks_higher(self):
         """A doc present in both legs gets score 1/(k+r1) + 1/(k+r2) > single-leg."""
-        sem = make_semantic_fn(["a", "b"])           # a rank 1, b rank 2
-        kw = make_keyword_fn(["b", "c"])             # b rank 1, c rank 2
+        sem = make_semantic_fn(["a", "b"])  # a rank 1, b rank 2
+        kw = make_keyword_fn(["b", "c"])  # b rank 1, c rank 2
         s = HybridSearcher(semantic_fn=sem, keyword_fn=kw, rrf_k=1)
         hits = s.search("q", query_vec=[0.1], top_k=10, mode="hybrid")
         # b is rank-1 in kw + rank-2 in sem = 1/2 + 1/3 = 0.833
@@ -121,7 +125,7 @@ class TestHybridMode:
 
     def test_scores_are_rrf_formula(self):
         sem = make_semantic_fn(["a"])  # rank 1 in semantic
-        kw = make_keyword_fn(["a"])    # rank 1 in keyword
+        kw = make_keyword_fn(["a"])  # rank 1 in keyword
         k = 60
         s = HybridSearcher(semantic_fn=sem, keyword_fn=kw, rrf_k=k)
         hits = s.search("q", query_vec=[0.1], top_k=5, mode="hybrid")
@@ -148,6 +152,7 @@ class TestHybridMode:
     def test_semantic_exception_does_not_crash(self):
         def bad_sem(query_vec, top_k=10):
             raise RuntimeError("embedder down")
+
         kw = make_keyword_fn(["x", "y"])
         s = HybridSearcher(semantic_fn=bad_sem, keyword_fn=kw)
         hits = s.search("q", query_vec=[0.1], top_k=5, mode="hybrid")
@@ -155,8 +160,10 @@ class TestHybridMode:
 
     def test_keyword_exception_does_not_crash(self):
         sem = make_semantic_fn(["a", "b"])
+
         def bad_kw(query, top_k=10):
             raise RuntimeError("bm25 index missing")
+
         s = HybridSearcher(semantic_fn=sem, keyword_fn=bad_kw)
         hits = s.search("q", query_vec=[0.1], top_k=5, mode="hybrid")
         assert [h.rule.rule_id for h in hits] == ["a", "b"]
@@ -172,15 +179,16 @@ class TestCandidateExpansion:
         called_kw = {}
         sem = make_semantic_fn([f"s{i}" for i in range(50)])
         kw = make_keyword_fn([f"k{i}" for i in range(50)])
+
         def sem_wrapper(qv, top_k=10):
             called_sem["top_k"] = top_k
             return sem(qv, top_k=top_k)
+
         def kw_wrapper(q, top_k=10):
             called_kw["top_k"] = top_k
             return kw(q, top_k=top_k)
-        s = HybridSearcher(
-            semantic_fn=sem_wrapper, keyword_fn=kw_wrapper, candidate_k=30
-        )
+
+        s = HybridSearcher(semantic_fn=sem_wrapper, keyword_fn=kw_wrapper, candidate_k=30)
         s.search("q", query_vec=[0.1], top_k=2, mode="hybrid")
         assert called_sem["top_k"] >= 30
         assert called_kw["top_k"] >= 30
@@ -199,9 +207,7 @@ class TestMinScoreFilter:
         all_hits = s.search("q", query_vec=[0.1], top_k=10, mode="hybrid")
         a_score = next(h.score for h in all_hits if h.rule.rule_id == "a")
         # Now set min_score just above the second-place doc
-        s2 = HybridSearcher(
-            semantic_fn=sem, keyword_fn=kw, rrf_k=60, min_score=a_score
-        )
+        s2 = HybridSearcher(semantic_fn=sem, keyword_fn=kw, rrf_k=60, min_score=a_score)
         filtered = s2.search("q", query_vec=[0.1], top_k=10, mode="hybrid")
         filtered_ids = {h.rule.rule_id for h in filtered}
         assert "a" in filtered_ids

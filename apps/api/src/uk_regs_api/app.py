@@ -19,6 +19,11 @@ Review UI (Jinja2 + HTMX, dark professional theme):
   GET /ui/                            -> dashboard of pending changes
   GET /ui/changes/{change_set_id}     -> detail with side-by-side diff
 
+Ops Dashboard (Phase 5-3):
+  GET /ops                -> live ops dashboard (HTML)
+  GET /ops/stats          -> pipeline stats (JSON)
+  GET /ops/stats?partial=1 -> HTMX partial fragment (HTML)
+
 Auth: when API_KEY env is set, mutating routes require X-API-Key header.
 Observability: structlog logging, OpenTelemetry tracing, Langfuse LLM tracing.
 """
@@ -483,3 +488,47 @@ def ui_review_submit(
             "flash": f"Change-set marked as '{decision}'.",
         },
     )
+
+
+# =========================================================================== #
+#  Ops Dashboard (Phase 5-3)
+# =========================================================================== #
+def _enrich_stats_with_sources(stats) -> None:
+    """Best-effort: fill in source counts from the sourcing registry."""
+    try:
+        from uk_regs_sourcing.registry import load_registry
+
+        registry = load_registry()
+        stats.sources_count = len(registry.sources)
+        stats.sources_enabled = sum(1 for s in registry.sources if s.enabled)
+    except Exception:
+        # Sourcing subsystem not available — leave counts at 0.
+        pass
+
+
+@app.get("/ops", response_class=HTMLResponse)
+def ops_dashboard(request: Request) -> HTMLResponse:
+    """Full ops dashboard page (HTML)."""
+    backend = get_backend()
+    stats = backend.get_ops_stats()
+    _enrich_stats_with_sources(stats)
+    return templates.TemplateResponse(request, "ops.html", {"stats": stats})
+
+
+@app.get("/ops/stats")
+def ops_stats(partial: bool = Query(False, description="Return HTML partial for HTMX")):
+    """
+    Pipeline statistics snapshot.
+
+    Without ``?partial=1`` → JSON (for programmatic consumers / curl).
+    With ``?partial=1`` → rendered HTML fragment (for HTMX dashboard refresh).
+    """
+    backend = get_backend()
+    stats = backend.get_ops_stats()
+    _enrich_stats_with_sources(stats)
+
+    if partial:
+        # Jinja2Templates needs a Request; for the partial we render via env.
+        html = templates.env.get_template("ops_partial.html").render(stats=stats)
+        return HTMLResponse(content=html)
+    return stats.to_dict()

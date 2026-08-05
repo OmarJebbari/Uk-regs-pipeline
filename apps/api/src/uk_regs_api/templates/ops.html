@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Ops · UK Regs Pipeline{% endblock %}
+
+{% block content %}
+<h1>Operations Dashboard</h1>
+<p>Live snapshot of every subsystem in the UK Regs knowledge pipeline.</p>
+
+<div class="refresh-bar">
+    <span class="ts" id="ts">Last refresh: {{ stats.generated_at[:19] | replace('T', ' ') }} UTC</span>
+    <button class="btn-sm"
+            hx-get="/ops/stats?partial=1"
+            hx-target="#ops-body"
+            hx-swap="innerHTML"
+            hx-indicator="#spin">
+        ↻ Refresh
+    </button>
+    <span id="spin" class="htmx-indicator" style="font-size:12px;color:var(--text-dim)">refreshing…</span>
+</div>
+
+<div id="ops-body">
+    {% include "ops_partial.html" %}
+</div>
+{% endblock %}

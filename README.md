@@ -456,6 +456,50 @@ the API never crashes because of a missing vector index.
 
 ---
 
+## Ops Dashboard (Phase 5-3)
+
+A live **operations dashboard** built into the API that gives a single-screen
+overview of pipeline health: how many rules are active, how they break down by
+status and category, how many documents/versions are stored, the review-queue
+backlog, and source-monitoring coverage.
+
+### Access it
+
+```bash
+make api-mock    # start the API (mock backend, no Docker needed)
+make ops         # open the Ops Dashboard at http://localhost:8000/ops
+```
+
+The dashboard is a dark-themed Jinja2 page with stat tiles and breakdown
+tables. A **Refresh** button (HTMX) polls `/ops/stats?partial=1` and swaps in
+fresh counts without a full page reload — so you can keep it open on a ops
+monitor.
+
+### Endpoints
+
+| Endpoint | Returns | Purpose |
+|---|---|---|
+| `/ops` | HTML | Full dashboard page (renders tiles + breakdowns) |
+| `/ops/stats` | JSON | Machine-readable `PipelineStats` snapshot for monitoring/alerting |
+| `/ops/stats?partial=1` | HTML fragment | HTMX partial (tile grid only, no `<html>` shell) |
+
+### What it shows
+
+| Tile | Source |
+|---|---|
+| **Active Rules** | rules with `status = active` |
+| **Total Rules** | all rule rows (incl. superseded) |
+| **Rules by Status** | `active` / `superseded` / `draft` counts |
+| **Rules by Category** | fire-safety / structural / accessibility / etc. |
+| **Documents / Versions** | document manifest + version counts |
+| **Review Queue** | change-sets by status + pending-review count |
+| **Sources** | monitored sources (total / enabled) |
+
+The JSON endpoint (`/ops/stats`) returns the same data for external
+monitoring — wire it into Grafana, Datadog, or a simple cron alert.
+
+---
+
 ## How "memory + update" works
 
 Each extracted rule is a **typed Pydantic object** with provenance and bitemporal fields.
@@ -590,7 +634,12 @@ the full test suite locally — so a broken commit never reaches CI.
     leg. Three modes via `/search?mode=hybrid|semantic|keyword`.
     Configurable `SEARCH_RRF_K`, `SEARCH_CANDIDATE_K`, `SEARCH_MIN_SCORE`.
     Graceful degradation when embeddings are unavailable.
-  - [ ] Ops dashboards
+  - [x] **5‑3 · Ops Dashboard** ✅ — Live pipeline-health dashboard at `/ops`
+    (dark-themed Jinja2 + HTMX): active/total rules, rules-by-status, rules-by-category,
+    document/version counts, review-queue backlog, source-monitoring coverage.
+    JSON endpoint at `/ops/stats` for external monitoring (Grafana/Datadog).
+    HTMX partial refresh (`/ops/stats?partial=1`) for no-reload polling.
+    New `make ops` target opens it in the browser.
 
 ---
 

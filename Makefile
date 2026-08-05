@@ -11,7 +11,7 @@ VER     ?= "2026-ed1"
 
 .PHONY: help install hooks up down status logs init-db reset \
         ingest ingest-offline lint fmt test check ci clean \
-        api api-mock api-protected api-otel mcp export-rules review \
+        api api-mock api-protected api-otel mcp export-rules review ops \
         eval eval-offline eval-list \
         source-once source-watch source-list source-poll
 
@@ -133,6 +133,12 @@ review:  ## Open the ChangeSet Review UI (HTMX dashboard) in the default browser
 	@command -v xdg-open >/dev/null 2>&1 && xdg-open http://localhost:8000/ui/ || \
 	 command -v open >/dev/null 2>&1 && open http://localhost:8000/ui/ || \
 	 start http://localhost:8000/ui/ || true
+
+ops:  ## Open the Ops Dashboard (live pipeline stats) in the default browser
+	@echo "Opening Ops Dashboard at http://localhost:8000/ops ..."
+	@command -v xdg-open >/dev/null 2>&1 && xdg-open http://localhost:8000/ops || \
+	 command -v open >/dev/null 2>&1 && open http://localhost:8000/ops || \
+	 start http://localhost:8000/ops || true
 
 # --------------------------------------------------------------------------- #
 #  Source monitoring — auto-ingest new/changed PDFs (Phase 5-1)

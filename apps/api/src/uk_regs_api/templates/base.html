@@ -56,6 +56,7 @@
             transition: color 0.15s;
         }
         .nav-links a:hover { color: var(--accent); }
+        .nav-links a.active { color: var(--accent); font-weight: 600; }
 
         .container {
             max-width: 1200px;
@@ -263,6 +264,150 @@
             padding: 64px;
             color: var(--text-dim);
         }
+
+        /* ---- Ops dashboard (Phase 5-3) ---- */
+        .ops-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+        .ops-tile {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .ops-tile .num {
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+        .ops-tile .label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            margin-top: 4px;
+        }
+        .ops-tile.accent .num { color: var(--accent); }
+        .ops-tile.success .num { color: var(--success); }
+        .ops-tile.warning .num { color: var(--warning); }
+        .ops-tile.info .num { color: var(--info); }
+        .ops-tile.danger .num { color: var(--danger); }
+
+        .ops-section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 32px;
+            margin-bottom: 12px;
+            color: var(--text);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+        }
+        .ops-section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .breakdown {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .breakdown-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+        }
+        .breakdown-row .name {
+            min-width: 130px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 12px;
+        }
+        .breakdown-row .bar {
+            flex: 1;
+            height: 10px;
+            background: var(--bg-elev);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .breakdown-row .bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 5px;
+            transition: width 0.3s;
+        }
+        .breakdown-row .count {
+            min-width: 40px;
+            text-align: right;
+            font-family: var(--mono);
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .ops-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .ops-table th {
+            text-align: left;
+            padding: 10px 12px;
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+        }
+        .ops-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .ops-table tr:last-child td { border-bottom: none; }
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        .dot-ok { background: var(--success); }
+        .dot-warn { background: var(--warning); }
+        .dot-fail { background: var(--danger); }
+
+        .refresh-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+        .refresh-bar .ts {
+            font-size: 12px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+        }
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 13px;
+            border: 1px solid var(--border);
+            background: var(--bg-elev);
+            color: var(--text);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
     </style>
 </head>
 <body>
@@ -270,6 +415,7 @@
         <div class="nav-brand">🏛 UK Regs Review</div>
         <div class="nav-links">
             <a href="/ui/">Dashboard</a>
+            <a href="/ops">Ops</a>
             <a href="/docs">API Docs</a>
         </div>
     </nav>

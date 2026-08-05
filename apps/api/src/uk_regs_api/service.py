@@ -26,6 +26,8 @@ from uk_regs_core import (
 )
 from uk_regs_core.enums import Decision
 
+from uk_regs_api.stats import PipelineStats
+
 # Search mode: hybrid (RRF fusion), semantic (vector only), keyword (BM25 only).
 SearchMode = Literal["hybrid", "semantic", "keyword"]
 
@@ -52,9 +54,7 @@ class RuleHit:
 #  Backend protocol
 # --------------------------------------------------------------------------- #
 class ContextBackend(Protocol):
-    def search(
-        self, query: str, top_k: int = 10, mode: SearchMode = "hybrid"
-    ) -> list[RuleHit]: ...
+    def search(self, query: str, top_k: int = 10, mode: SearchMode = "hybrid") -> list[RuleHit]: ...
 
     def get_rule(self, rule_id: str) -> Rule | None: ...
 
@@ -71,6 +71,8 @@ class ContextBackend(Protocol):
     ) -> ChangeSet | None: ...
 
     def diff(self, rule_id: str) -> dict: ...
+
+    def get_ops_stats(self) -> PipelineStats: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -113,7 +115,12 @@ class HybridSearcher:
         self.min_score = min_score
 
     def search(
-        self, query: str, query_vec: list[float] | None, *, top_k: int = 10, mode: SearchMode = "hybrid"
+        self,
+        query: str,
+        query_vec: list[float] | None,
+        *,
+        top_k: int = 10,
+        mode: SearchMode = "hybrid",
     ) -> list[RuleHit]:
         k = max(top_k, self.candidate_k)
 
@@ -200,9 +207,7 @@ class RealBackend:
                 self._embedder = "unavailable"
         return self._embedder
 
-    def search(
-        self, query: str, top_k: int = 10, mode: SearchMode = "hybrid"
-    ) -> list[RuleHit]:
+    def search(self, query: str, top_k: int = 10, mode: SearchMode = "hybrid") -> list[RuleHit]:
         """
         Hybrid search over the rules table.
 
@@ -242,9 +247,7 @@ class RealBackend:
             candidate_k=s.search_candidate_k,
             min_score=s.search_min_score,
         )
-        return searcher.search(
-            query, query_vec, top_k=top_k, mode=effective_mode
-        )
+        return searcher.search(query, query_vec, top_k=top_k, mode=effective_mode)
 
     def get_rule(self, rule_id: str) -> Rule | None:
         self._ensure()
@@ -288,6 +291,30 @@ class RealBackend:
     ) -> ChangeSet | None:
         self._ensure()
         return self._changes.review(change_set_id, decision, reviewer, notes)
+
+    def get_ops_stats(self) -> PipelineStats:
+        """Aggregate pipeline stats from all repositories for the ops dashboard."""
+        self._ensure()
+        from uk_regs_knowledge.repositories.relational_repo import DocumentRepository
+
+        docs = DocumentRepository()
+        try:
+            documents = docs.count_documents()
+            versions = docs.count_versions()
+        except Exception:
+            documents, versions = 0, 0
+
+        rules_by_status = self._rules.count_by_status()
+        return PipelineStats(
+            active_rules=rules_by_status.get("active", 0),
+            total_rules=self._rules.total_count(),
+            rules_by_status=rules_by_status,
+            rules_by_category=self._rules.count_by_category(),
+            documents=documents,
+            document_versions=versions,
+            change_sets_by_status=self._changes.count_by_status(),
+            pending_review=self._changes.count_by_status().get("proposed", 0),
+        )
 
     def diff(self, rule_id: str) -> dict:
         self._ensure()
@@ -507,9 +534,7 @@ class MockBackend:
         hits = sum(1 for t in terms if t in haystack)
         return hits / max(len(terms), 1)
 
-    def search(
-        self, query: str, top_k: int = 10, mode: SearchMode = "hybrid"
-    ) -> list[RuleHit]:
+    def search(self, query: str, top_k: int = 10, mode: SearchMode = "hybrid") -> list[RuleHit]:
         # Mock has no vector index; keyword scoring is the only leg available.
         # We accept `mode` for Protocol conformance but always rank by keywords.
         scored = [(r, self._score(query, r)) for r in self._rules]
@@ -561,6 +586,29 @@ class MockBackend:
                 )
                 return self._changes[i]
         return None
+
+    def get_ops_stats(self) -> PipelineStats:
+        """Mock stats derived from the in-memory seed data."""
+        active = [r for r in self._rules if r.status == RuleStatus.ACTIVE]
+        rules_by_status: dict[str, int] = {}
+        for r in self._rules:
+            rules_by_status[r.status.value] = rules_by_status.get(r.status.value, 0) + 1
+        rules_by_category: dict[str, int] = {}
+        for r in active:
+            rules_by_category[r.category.value] = rules_by_category.get(r.category.value, 0) + 1
+        cs_by_status: dict[str, int] = {}
+        for c in self._changes:
+            cs_by_status[c.status] = cs_by_status.get(c.status, 0) + 1
+        return PipelineStats(
+            active_rules=len(active),
+            total_rules=len(self._rules),
+            rules_by_status=rules_by_status,
+            rules_by_category=rules_by_category,
+            documents=3,
+            document_versions=3,
+            change_sets_by_status=cs_by_status,
+            pending_review=cs_by_status.get("proposed", 0),
+        )
 
     def diff(self, rule_id: str) -> dict:
         rule = self.get_rule(rule_id)

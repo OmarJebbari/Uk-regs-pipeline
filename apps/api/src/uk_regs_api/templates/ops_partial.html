@@ -1,0 +1,83 @@
+{# Reusable dashboard body — included by ops.html and returned by /ops/stats?partial=1 #}
+<input type="hidden" id="ts" value="{{ stats.generated_at }}">
+
+<div class="ops-grid">
+    <div class="ops-tile success">
+        <div class="num">{{ stats.active_rules }}</div>
+        <div class="label">Active Rules</div>
+    </div>
+    <div class="ops-tile accent">
+        <div class="num">{{ stats.total_rules }}</div>
+        <div class="label">Total Rules (all versions)</div>
+    </div>
+    <div class="ops-tile info">
+        <div class="num">{{ stats.documents }}</div>
+        <div class="label">Documents</div>
+    </div>
+    <div class="ops-tile info">
+        <div class="num">{{ stats.document_versions }}</div>
+        <div class="label">Document Versions</div>
+    </div>
+    <div class="ops-tile warning">
+        <div class="num">{{ stats.pending_review }}</div>
+        <div class="label">Pending Review</div>
+    </div>
+    <div class="ops-tile {% if stats.sources_enabled == stats.sources_count and stats.sources_count > 0 %}success{% else %}danger{% endif %}">
+        <div class="num">{{ stats.sources_enabled }}/{{ stats.sources_count }}</div>
+        <div class="label">Sources Healthy</div>
+    </div>
+</div>
+
+{# ── Rules by Status ── #}
+<div class="ops-section-title">Rules by Status</div>
+<div class="breakdown">
+    {% set ns = namespace(max=1) %}
+    {% for s, c in stats.rules_by_status.items() %}
+        {% if c > ns.max %}{% set ns.max = c %}{% endif %}
+    {% endfor %}
+    {% for status, count in stats.rules_by_status.items() %}
+    <div class="breakdown-row">
+        <span class="name">{{ status }}</span>
+        <div class="bar"><div class="bar-fill" style="width: {{ (count / ns.max * 100) | round }}%"></div></div>
+        <span class="count">{{ count }}</span>
+    </div>
+    {% else %}
+    <div style="color:var(--text-dim);font-size:13px">No rules recorded yet.</div>
+    {% endfor %}
+</div>
+
+{# ── Active Rules by Category ── #}
+<div class="ops-section-title">Active Rules by Category</div>
+<div class="breakdown">
+    {% set ns2 = namespace(max=1) %}
+    {% for cat, c in stats.rules_by_category.items() %}
+        {% if c > ns2.max %}{% set ns2.max = c %}{% endif %}
+    {% endfor %}
+    {% for cat, count in stats.rules_by_category.items() %}
+    <div class="breakdown-row">
+        <span class="name">{{ cat }}</span>
+        <div class="bar"><div class="bar-fill" style="width: {{ (count / ns2.max * 100) | round }}%"></div></div>
+        <span class="count">{{ count }}</span>
+    </div>
+    {% else %}
+    <div style="color:var(--text-dim);font-size:13px">No active rules yet.</div>
+    {% endfor %}
+</div>
+
+{# ── Review Queue ── #}
+<div class="ops-section-title">Review Queue (Change-Sets)</div>
+<div class="breakdown">
+    {% set ns3 = namespace(max=1) %}
+    {% for s, c in stats.change_sets_by_status.items() %}
+        {% if c > ns3.max %}{% set ns3.max = c %}{% endif %}
+    {% endfor %}
+    {% for status, count in stats.change_sets_by_status.items() %}
+    <div class="breakdown-row">
+        <span class="name">{{ status }}</span>
+        <div class="bar"><div class="bar-fill" style="width: {{ (count / ns3.max * 100) | round }}%"></div></div>
+        <span class="count">{{ count }}</span>
+    </div>
+    {% else %}
+    <div style="color:var(--text-dim);font-size:13px">No change-sets yet. Run an ingest to populate.</div>
+    {% endfor %}
+</div>

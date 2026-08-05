@@ -97,6 +97,18 @@ class DocumentRepository:
                 },
             )
 
+    def count_documents(self) -> int:
+        """Total number of distinct documents."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute("SELECT count(*) FROM documents")
+            return cur.fetchone()[0]
+
+    def count_versions(self) -> int:
+        """Total number of document versions (documents × versions)."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute("SELECT count(*) FROM document_versions")
+            return cur.fetchone()[0]
+
 
 # --------------------------------------------------------------------------- #
 #  Rules
@@ -175,6 +187,30 @@ class RuleRepository:
                 """,
                 params,
             )
+
+    def total_count(self) -> int:
+        """Total number of rules in the store (any status/version)."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute("SELECT count(*) FROM rules")
+            return cur.fetchone()[0]
+
+    def count_by_status(self) -> dict[str, int]:
+        """Rule counts grouped by status (active, superseded, withdrawn, …)."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute("SELECT status, count(*) FROM rules GROUP BY status ORDER BY status")
+            return dict(cur.fetchall())
+
+    def count_by_category(self) -> dict[str, int]:
+        """Active rule counts grouped by category."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                """
+                SELECT category, count(*) FROM rules
+                WHERE status = 'active'
+                GROUP BY category ORDER BY category
+                """
+            )
+            return dict(cur.fetchall())
 
     def get_current_rules(self, *, now: date | None = None) -> list[Rule]:
         """All rules currently in force (the 'current truth')."""
@@ -447,6 +483,12 @@ class ChangeSetRepository:
             (cs for cs in self.list_changes(limit=1000) if cs.change_set_id == change_set_id),
             None,
         )
+
+    def count_by_status(self) -> dict[str, int]:
+        """Change-set counts grouped by status (proposed, applied, …)."""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute("SELECT status, count(*) FROM change_sets GROUP BY status ORDER BY status")
+            return dict(cur.fetchall())
 
     def list_changes(
         self,
