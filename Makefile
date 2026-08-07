@@ -11,7 +11,9 @@ VER     ?= "2026-ed1"
 
 .PHONY: help install hooks up down status logs init-db reset \
         ingest ingest-offline lint fmt test check ci clean \
-        api api-mock api-protected api-otel mcp export-rules review ops \
+        api api-mock api-protected api-otel mcp \
+        export-rules export-cursor export-claude export-bundle export-json \
+        review ops \
         eval eval-offline eval-list \
         source-once source-watch source-list source-poll
 
@@ -127,6 +129,21 @@ export-rules:  ## Export consolidated regulations to CONSOLIDATED_REGULATIONS.md
 		d = json.loads(r.read()); \
 		open(d['filename'], 'w', encoding='utf-8').write(d['content']); \
 		print(f'Wrote {d[\"filename\"]} ({d[\"rule_count\"]} rules)')"
+
+export-cursor:  ## Render the full IDE bundle (.cursor/rules, CLAUDE.md, JSON) to dist/export/
+	@echo "Rendering IDE context bundle to dist/export/ ..."
+	@uv run uk-regs-export render --api http://localhost:8000 --out dist/export
+
+export-claude:  ## Download CLAUDE.md to the project root
+	@curl -s http://localhost:8000/export/claude.md -o CLAUDE.md
+	@echo "Wrote CLAUDE.md"
+
+export-bundle:  ## List every artifact the export can generate (JSON manifest)
+	@curl -s http://localhost:8000/export/bundle | python -m json.tool
+
+export-json:  ## Download regulations.json (machine-readable)
+	@curl -s http://localhost:8000/export/regulations.json -o regulations.json
+	@echo "Wrote regulations.json"
 
 review:  ## Open the ChangeSet Review UI (HTMX dashboard) in the default browser
 	@echo "Opening Review UI at http://localhost:8000/ui/ ..."

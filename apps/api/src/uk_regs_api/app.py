@@ -34,8 +34,15 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
+from uk_regs_export.renderers import (
+    render_all,
+    render_claude_md,
+    render_consolidated_md,
+    render_cursor_mdc,
+    render_json,
+)
 
 from uk_regs_api.auth import ApiKeyMiddleware
 from uk_regs_api.observability import setup_observability
@@ -264,48 +271,89 @@ def review_change_set(
 
 
 # --------------------------------------------------------------------------- #
-#  Export — consolidated Markdown for IDE rules (Cursor/Claude/Copilot)
+#  Export — IDE-native context files (Cursor .mdc, CLAUDE.md, JSON)
 # --------------------------------------------------------------------------- #
+def _get_export_rules():
+    """Fetch current rules once; cached per-request by the backend."""
+    backend = get_backend()
+    return backend.get_current()
+
+
 @app.get("/export/markdown")
 def export_markdown() -> dict:
-    """Generate .cursor/rules + CLAUDE.md content from the current truth."""
-    backend = get_backend()
-    rules = backend.get_current()
-    lines = [
-        "# UK Building Regulations — Current Context",
-        "",
-        f"_Auto-generated from the UK Regs pipeline. {len(rules)} active rules._",
-        "",
-        "---",
-        "",
-    ]
-    for r in rules:
-        lines.append(f"## {r.title or r.rule_id}")
-        lines.append(f"- **Rule ID:** `{r.rule_id}`")
-        lines.append(f"- **Section:** `{r.section_path}`")
-        lines.append(f"- **Category:** {r.category.value}")
-        lines.append(f"- **Status:** {r.status.value} (valid from {r.valid_from})")
-        lines.append("")
-        lines.append(f"> {r.text}")
-        lines.append("")
-        if r.parameters:
-            lines.append("**Parameters:**")
-            for k, v in r.parameters.items():
-                lines.append(f"- `{k}` = `{v}`")
-            lines.append("")
-        if r.references:
-            lines.append(f"**References:** {', '.join(r.references)}")
-            lines.append("")
-        c = r.citation
-        lines.append(f"**Source:** {c.doc_id} {c.version}, p.{c.page} — _\u201c{c.raw_text}\u201d_")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
+    """Backwards-compatible: consolidated Markdown as a JSON payload."""
+    rules = _get_export_rules()
+    _, content = render_consolidated_md(rules)
     return {
         "filename": "CONSOLIDATED_REGULATIONS.md",
-        "content": "\n".join(lines),
+        "content": content,
         "rule_count": len(rules),
     }
+
+
+@app.get("/export/bundle")
+def export_bundle() -> dict:
+    """
+    Manifest of every file the export can generate.
+
+    Returns ``{files: [{path, size}], rule_count}`` so a client (CLI, CI job,
+    or the ops dashboard) knows exactly what artifacts are available for
+    download via the granular endpoints below.
+    """
+    rules = _get_export_rules()
+    bundle = render_all(rules)
+    return {
+        "rule_count": len(rules),
+        "files": [{"path": p, "size": len(c)} for p, c in sorted(bundle.items())],
+    }
+
+
+@app.get("/export/consolidated.md", response_class=PlainTextResponse)
+def export_consolidated_download() -> PlainTextResponse:
+    """Download the full consolidated regulations as ``.md``."""
+    _, content = render_consolidated_md(_get_export_rules())
+    return PlainTextResponse(content, media_type="text/markdown")
+
+
+@app.get("/export/claude.md", response_class=PlainTextResponse)
+def export_claude_download() -> PlainTextResponse:
+    """Download ``CLAUDE.md`` — the repo-root brief for Claude Code/Desktop."""
+    _, content = render_claude_md(_get_export_rules())
+    return PlainTextResponse(content, media_type="text/markdown")
+
+
+@app.get("/export/regulations.json")
+def export_json_download() -> dict:
+    """Download the machine-readable JSON export of every current rule."""
+    _, content = render_json(_get_export_rules())
+    import json
+
+    return json.loads(content)
+
+
+@app.get("/export/cursor/{category}.mdc", response_class=PlainTextResponse)
+def export_cursor_mdc(category: str) -> PlainTextResponse:
+    """
+    Download a single Cursor ``.mdc`` rules file for a given category.
+
+    Returns 404 if the category has no rules (and thus no generated file).
+    """
+    bundle = render_cursor_mdc(_get_export_rules())
+    key = f".cursor/rules/{category}.mdc"
+    if key not in bundle:
+        valid = sorted({k.split("/")[-1].removesuffix(".mdc") for k in bundle})
+        raise HTTPException(
+            status_code=404,
+            detail=f"No .mdc for category '{category}'. Available: {valid}",
+        )
+    return PlainTextResponse(bundle[key], media_type="text/markdown")
+
+
+@app.get("/export/cursorrules", response_class=PlainTextResponse)
+def export_cursorrules_download() -> PlainTextResponse:
+    """Download the legacy flat ``.cursorrules`` file."""
+    bundle = render_cursor_mdc(_get_export_rules())
+    return PlainTextResponse(bundle.get(".cursorrules", ""), media_type="text/markdown")
 
 
 # =========================================================================== #

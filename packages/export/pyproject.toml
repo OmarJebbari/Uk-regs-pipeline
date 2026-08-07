@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uk-regs-export"
+version = "0.1.0"
+description = "Static context export — renders current rules into Cursor .mdc, CLAUDE.md, and consolidated markdown for IDE assistants."
+requires-python = ">=3.12"
+dependencies = [
+    "uk-regs-core",
+    "typer>=0.12",
+]
+
+[project.scripts]
+uk-regs-export = "uk_regs_export.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uk_regs_export"]

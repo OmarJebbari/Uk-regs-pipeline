@@ -17,6 +17,7 @@ dependencies = [
     "uk-regs-api",
     "uk-regs-mcp-server",
     "uk-regs-sourcing",
+    "uk-regs-export",
 ]
 
 [tool.uv.workspace]
@@ -30,6 +31,7 @@ members = [
     "apps/api",
     "apps/mcp_server",
     "packages/sourcing",
+    "packages/export",
 ]
 
 [dependency-groups]
@@ -51,6 +53,7 @@ uk_regs_ingest = { workspace = true }
 uk_regs_api = { workspace = true }
 uk_regs_mcp_server = { workspace = true }
 uk_regs_sourcing = { workspace = true }
+uk_regs_export = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"

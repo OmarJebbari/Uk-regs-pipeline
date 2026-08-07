@@ -15,6 +15,7 @@ members = [
     "uk-regs-api",
     "uk-regs-core",
     "uk-regs-evals",
+    "uk-regs-export",
     "uk-regs-extraction",
     "uk-regs-ingest",
     "uk-regs-knowledge",
@@ -2280,6 +2281,7 @@ dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "structlog" },
     { name = "uk-regs-core" },
+    { name = "uk-regs-export" },
     { name = "uk-regs-knowledge" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -2295,6 +2297,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", specifier = ">=1.24" },
     { name = "structlog", specifier = ">=24.1" },
     { name = "uk-regs-core", editable = "packages/core" },
+    { name = "uk-regs-export", editable = "packages/export" },
     { name = "uk-regs-knowledge", editable = "packages/knowledge" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
@@ -2343,6 +2346,21 @@ requires-dist = [
     { name = "uk-regs-extraction", editable = "packages/extraction" },
     { name = "uk-regs-knowledge", editable = "packages/knowledge" },
     { name = "uk-regs-reconcile", editable = "packages/reconciliation" },
+]
+
+[[package]]
+name = "uk-regs-export"
+version = "0.1.0"
+source = { editable = "packages/export" }
+dependencies = [
+    { name = "typer" },
+    { name = "uk-regs-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "typer", specifier = ">=0.12" },
+    { name = "uk-regs-core", editable = "packages/core" },
 ]
 
 [[package]]
@@ -2441,6 +2459,7 @@ dependencies = [
     { name = "uk-regs-api" },
     { name = "uk-regs-core" },
     { name = "uk-regs-evals" },
+    { name = "uk-regs-export" },
     { name = "uk-regs-extraction" },
     { name = "uk-regs-ingest" },
     { name = "uk-regs-knowledge" },
@@ -2463,6 +2482,7 @@ requires-dist = [
     { name = "uk-regs-api", editable = "apps/api" },
     { name = "uk-regs-core", editable = "packages/core" },
     { name = "uk-regs-evals", editable = "packages/evals" },
+    { name = "uk-regs-export", editable = "packages/export" },
     { name = "uk-regs-extraction", editable = "packages/extraction" },
     { name = "uk-regs-ingest", editable = "pipelines/ingest" },
     { name = "uk-regs-knowledge", editable = "packages/knowledge" },

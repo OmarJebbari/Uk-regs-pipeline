@@ -186,6 +186,7 @@ uk-regs-pipeline/
 │  ├─ knowledge/      # object store, relational + graph repos, embeddings, schema.sql
 │  ├─ reconciliation/ # matchers + supersession engine (the "update memory" heart)
 │  ├─ sourcing/       # source monitoring: fetchers, diff engine, scheduler, state store
+│  ├─ export/         # static context renderer (.cursor/rules, CLAUDE.md, consolidated.md, JSON)
 │  └─ evals/          # golden datasets, metrics, harnesses, `uk-regs-eval` CLI
 ├─ pipelines/
 │  └─ ingest/         # orchestrator + CLI (`uk-regs-ingest`)
@@ -500,6 +501,78 @@ monitoring — wire it into Grafana, Datadog, or a simple cron alert.
 
 ---
 
+## Static context export — Phase 6-1
+
+The pipeline renders the consolidated "current truth" into **IDE-native static
+files** you can commit alongside your code. This is the offline counterpart to
+the live API/MCP server: one command, zero runtime dependency, every rule
+carries its citation.
+
+### Why static export?
+
+The MCP server and `/search` API give your IDE **live, cited** context. But
+some workflows want a **committed artifact** — a checked-in snapshot of the
+regulations that travels with the repo, works offline, diffs in PRs, and is
+auditable. The export package produces exactly that.
+
+### What it generates
+
+| File | Format | Consumed by |
+|---|---|---|
+| `.cursor/rules/*.mdc` | Cursor rule files (one per category, YAML frontmatter + globs) | **Cursor IDE** |
+| `.cursorrules` | Legacy flat-file (all rules) | Older Cursor setups |
+| `CLAUDE.md` | Single-file context with usage instructions | **Claude Code / Claude Desktop** |
+| `consolidated.md` | Human-readable markdown (all rules grouped by category, with citations) | Code review / documentation |
+| `regulations.json` | Machine-readable full payload (rules + citations + parameters) | Custom tooling / round-trip re-render |
+
+Every rendered rule includes:
+- The rule text + normalized form
+- Inline parameters (e.g. `min_width = 1100mm`)
+- A **citation block**: `doc_id`, `version`, `page`, `url` — so the IDE can
+  trace any generated code back to the source PDF page.
+
+### Run it
+
+```bash
+# Render the full bundle from the running API → dist/export/
+make export
+
+# Dry-run (list what would be generated, no files written):
+make export-dry
+
+# Render from a previously-exported regulations.json (no API needed):
+make export-json JSON=regulations.json
+
+# Or use the CLI directly:
+uv run uk-regs-export render --api http://localhost:8000 --out dist/export/
+uv run uk-regs-export render --json regulations.json --out ./
+```
+
+### API surface (download endpoints)
+
+The API also serves each artifact directly, so CI/CD or a Git hook can fetch
+the latest snapshot:
+
+| Endpoint | Returns |
+|---|---|
+| `GET /export` | JSON manifest of available artifacts |
+| `GET /export/claude.md` | `CLAUDE.md` |
+| `GET /export/consolidated.md` | Consolidated markdown |
+| `GET /export/regulations.json` | Full JSON payload |
+| `GET /export/cursor/{category}.mdc` | One Cursor rule file per category |
+| `GET /export/cursorrules` | Legacy `.cursorrules` flat file |
+| `GET /export/markdown` | Alias for `consolidated.md` (back-compat) |
+
+### Architecture
+
+The export package has **zero dependency on the API package** — the renderers
+are pure functions (`render_all`, `render_cursor_mdc`, `render_claude_md`,
+`render_consolidated_md`, `render_json`). The CLI fetches rules over HTTP (or
+from a JSON file) and calls the pure renderers. This keeps the dependency
+graph acyclic: `api → export`, never `export → api`.
+
+---
+
 ## How "memory + update" works
 
 Each extracted rule is a **typed Pydantic object** with provenance and bitemporal fields.
@@ -640,6 +713,15 @@ the full test suite locally — so a broken commit never reaches CI.
     JSON endpoint at `/ops/stats` for external monitoring (Grafana/Datadog).
     HTMX partial refresh (`/ops/stats?partial=1`) for no-reload polling.
     New `make ops` target opens it in the browser.
+- [ ] **Phase 6** — IDE-native consumption (static export + agentic workflows)
+  - [x] **6‑1 · Static context export** ✅ — Pure-function renderers that turn the
+    consolidated "current truth" into committed, offline, IDE-native artifacts:
+    Cursor `.mdc` rule files (per-category, YAML frontmatter + globs), `CLAUDE.md`
+    (with usage instructions), `consolidated.md` (human-readable, citation-bearing),
+    and `regulations.json` (machine-readable round-trip payload). `uk-regs-export`
+    CLI (`--api` / `--json` / `--dry-run`), `/export/*` download endpoints, and
+    `make export` / `export-dry` / `export-json` targets. Zero dependency on the
+    API package (acyclic: `api → export`).
 
 ---
 
