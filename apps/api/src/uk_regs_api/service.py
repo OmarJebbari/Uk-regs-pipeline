@@ -74,6 +74,17 @@ class ContextBackend(Protocol):
 
     def get_ops_stats(self) -> PipelineStats: ...
 
+    def list_audit_events(
+        self,
+        *,
+        entity: str | None = None,
+        entity_id: str | None = None,
+        actor: str | None = None,
+        action: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]: ...
+
 
 # --------------------------------------------------------------------------- #
 #  Hybrid search — Reciprocal Rank Fusion (Phase 5-2)
@@ -315,6 +326,35 @@ class RealBackend:
             change_sets_by_status=self._changes.count_by_status(),
             pending_review=self._changes.count_by_status().get("proposed", 0),
         )
+
+    def list_audit_events(
+        self,
+        *,
+        entity: str | None = None,
+        entity_id: str | None = None,
+        actor: str | None = None,
+        action: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Query the append-only audit trail (newest-first)."""
+        self._ensure()
+        from uk_regs_knowledge.repositories.relational_repo import AuditRepository
+
+        repo = AuditRepository()  # uses the global connection pool
+        events = repo.list_events(
+            entity=entity,
+            entity_id=entity_id,
+            actor=actor,
+            action=action,
+            limit=limit,
+            offset=offset,
+        )
+        # Serialise datetime for JSON
+        for e in events:
+            if hasattr(e.get("at"), "isoformat"):
+                e["at"] = e["at"].isoformat()
+        return events
 
     def diff(self, rule_id: str) -> dict:
         self._ensure()
@@ -624,6 +664,51 @@ class MockBackend:
             },
             "change": "min_resistance_min: 20 -> 30",
         }
+
+    def list_audit_events(
+        self,
+        *,
+        entity: str | None = None,
+        entity_id: str | None = None,
+        actor: str | None = None,
+        action: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Mock audit trail — a static seed so the UI works without a DB."""
+        now = datetime.now(UTC)
+        seed = [
+            {
+                "id": 1,
+                "actor": "pipeline@system",
+                "action": "ingest",
+                "entity": "document",
+                "entity_id": "ad-b-2026",
+                "payload": {"version": "2026-ed1", "rules_extracted": 1},
+                "at": now.replace(hour=9, minute=15),
+            },
+            {
+                "id": 2,
+                "actor": "alice@practice.com",
+                "action": "apply",
+                "entity": "change_set",
+                "entity_id": "cs-demo-001",
+                "payload": {"notes": "Verified against the published 2026 edition."},
+                "at": now,
+            },
+        ]
+        out = seed
+        if entity:
+            out = [e for e in out if e["entity"] == entity]
+        if entity_id:
+            out = [e for e in out if e["entity_id"] == entity_id]
+        if actor:
+            out = [e for e in out if e["actor"] == actor]
+        if action:
+            out = [e for e in out if e["action"] == action]
+        for e in out:
+            e["at"] = e["at"].isoformat()
+        return out[offset : offset + limit]
 
 
 # --------------------------------------------------------------------------- #

@@ -47,7 +47,6 @@ from uk_regs_extraction.llm.client import LLMClient
 from uk_regs_extraction.llm.rule_extractor import RuleExtractor, to_rule
 from uk_regs_extraction.parsing.pdf_parser import (
     ParsedDocument,
-    drain_pending_uploads,
     parse_pdf,
 )
 from uk_regs_knowledge.embeddings import Embedder
@@ -175,8 +174,8 @@ class IngestPipeline:
         # 2. Parse (deterministic backbone)
         parsed = parse_pdf(pdf_bytes, doc_id=doc_id, version=version)
 
-        # 3. Persist figure images drained from the parser
-        self._drain_figures(doc_id, version)
+        # 3. Persist figure images returned by the parser
+        self._drain_figures(parsed.figure_images)
 
         # 4. Figure understanding (VLM) — optional
         figures = self._understand_figures(parsed) if not skip_llm else []
@@ -299,18 +298,19 @@ class IngestPipeline:
         except Exception:  # DB may be down in dev
             logger.warning("could not upsert document row (continuing)", exc_info=True)
 
-    def _drain_figures(self, doc_id: str, version: str) -> None:
-        pending = drain_pending_uploads()
-        if not pending:
+    def _drain_figures(self, figure_images: dict[str, bytes]) -> None:
+        """Upload rendered figure images to object storage."""
+        if not figure_images:
             return
         if self.object_store is None:
             logger.warning(
-                "parser produced %d figure(s) but no object store is available", len(pending)
+                "parser produced %d figure(s) but no object store is available",
+                len(figure_images),
             )
             return
-        for key, img_bytes in pending.items():
+        for key, img_bytes in figure_images.items():
             self.object_store.put(key, img_bytes, content_type="image/png")
-        logger.info("persisted %d figure image(s)", len(pending))
+        logger.info("persisted %d figure image(s)", len(figure_images))
 
     def _understand_figures(self, parsed: ParsedDocument) -> list[dict]:
         """Run the VLM over figure blocks. Best-effort; never fatal."""

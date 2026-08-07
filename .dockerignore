@@ -1,0 +1,56 @@
+# =============================================================================
+# UK Regs Pipeline — Docker build-context exclusions
+#
+# Keeps image builds fast + leak-free by excluding caches, venvs, secrets,
+# and large data files from being sent to the BuildKit daemon.
+# =============================================================================
+
+# ---- Git / metadata ----
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# ---- Python caches & build artefacts ----
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- Virtual envs (never bake into image) ----
+.venv/
+venv/
+env/
+
+# ---- Secrets (critical: never leak into image layers) ----
+.env
+.env.*
+!.env.example
+
+# ---- Data + binary PDFs (ingest via volume mounts, not image bake) ----
+data/
+pdfs/
+evals/golden/*.pdf
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Docs / non-runtime ----
+architecture-doc/
+*.md
+!README.md
+
+# ---- This Dockerfile set (not needed inside the image) ----
+infra/docker/
+infra/compose/

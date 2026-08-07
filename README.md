@@ -56,7 +56,7 @@ This pipeline automates all three.
 | **Quality** | pytest (157 tests), ruff, golden-set evals (4 suites, 100% gate), DeepEval/RAGAS metrics |
 | **Observability** | structlog, OpenTelemetry, Langfuse |
 | **CI/CD** | GitHub Actions (lint + test + evals), pre-commit hooks, Dependabot |
-| **Infra** | Docker Compose, Terraform-ready |
+| **Infra** | Docker Compose, Terraform (AWS ECS Fargate) |
 
 ---
 
@@ -607,6 +607,68 @@ graph acyclic: `api → export`, never `export → api`.
 
 ---
 
+## Deployment (Docker) — Phase 7
+
+The entire stack — data plane **and** application — runs in Docker with a
+single command. Three production-grade images are provided:
+
+| Image | Dockerfile | Purpose |
+|---|---|---|
+| `uk-regs-api` | `infra/docker/Dockerfile.api` | FastAPI context API (port 8000) |
+| `uk-regs-worker` | `infra/docker/Dockerfile.worker` | Ingest worker (one-shot, `docker compose run`) |
+| `uk-regs-mcp` | `infra/docker/Dockerfile.mcp` | MCP server (stdio, for IDE integration) |
+
+All three use a **multi-stage build** with `uv` and a non-root `ukregs` user
+(uid 1001). A `.dockerignore` keeps build context lean and prevents secrets
+from leaking into image layers.
+
+### Run the full stack
+
+```bash
+# Build + start data plane + API together:
+make compose-up-app
+
+# → API now live at http://localhost:8000
+```
+
+This is the data-plane compose (`docker-compose.yml`) **plus** the app
+overlay (`docker-compose.app.yml`). Secrets are passed through from the host
+env: set `OPENAI_API_KEY`, `API_KEY`, etc. in your shell or `.env` and they
+flow into the containers.
+
+### Ingest a PDF through the worker
+
+```bash
+# Drop the PDF in ./pdfs/, then:
+make docker-ingest PDF=pdfs/adb.pdf TITLE="Approved Document B" VER="2026-ed1"
+```
+
+The worker runs as a one-shot container, mounts `./pdfs` read-only, and writes
+into the shared data plane.
+
+### Other targets
+
+```bash
+make compose-build-app      # build all three images without starting
+make compose-logs-app       # tail API + worker logs
+make compose-down-app       # stop the app layer (data volumes intact)
+make docker-shell           # shell into the API container (debug)
+
+# Build/push a single image to a registry:
+make image-build SVC=api
+make image-push  SVC=api REG=ghcr.io/your-org
+```
+
+### Production notes
+
+- The API image runs as non-root, so bind to ports ≥ 1024 (port 8000 by default).
+- Structured JSON logging is enabled in the container (`LOG_FORMAT=json`).
+- For IDE integration with the MCP image, point your IDE at the running
+  container, or run the MCP server locally with `UK_REGS_API_URL` pointing at
+  the containerised API.
+
+---
+
 ## How "memory + update" works
 
 Each extracted rule is a **typed Pydantic object** with provenance and bitemporal fields.
@@ -756,6 +818,17 @@ the full test suite locally — so a broken commit never reaches CI.
     CLI (`--api` / `--json` / `--dry-run`), `/export/*` download endpoints, and
     `make export` / `export-dry` / `export-json` targets. Zero dependency on the
     API package (acyclic: `api → export`).
+- [x] **Phase 7** — Containerised deployment ✅ — Multi-stage Docker images
+  (`Dockerfile.api` / `.worker` / `.mcp`) with `uv`, non-root `ukregs` user,
+  `.dockerignore`, `docker-compose.app.yml` overlay, and `make compose-up-app` /
+  `docker-ingest` / `image-build` / `image-push` targets. Full stack runs with
+  one command.
+- [x] **Phase 14** — AWS Terraform stack ✅ — Production IaC for ECS Fargate:
+  VPC (public/private + NAT), RDS Postgres+pgvector (Multi-AZ + PITR),
+  S3 (versioned originals), ECR (per-image repos + lifecycle), Secrets Manager
+  (DB creds / OpenAI key / API key), Route 53 + ACM (managed DNS + HTTPS),
+  least-privilege IAM, CloudWatch logging. `dev` + `prod` tfvars,
+  `make tf-init / tf-plan / tf-apply / tf-output` targets.
 
 ---
 

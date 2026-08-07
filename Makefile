@@ -3,7 +3,10 @@
 # Requires: Python 3.12+, `uv` (https://docs.astral.sh/uv), Docker, GNU Make.
 # =============================================================================
 
-COMPOSE := docker compose -f infra/compose/docker-compose.yml
+COMPOSE     := docker compose -f infra/compose/docker-compose.yml
+COMPOSE_APP := docker compose \
+                 -f infra/compose/docker-compose.yml \
+                 -f infra/compose/docker-compose.app.yml
 SCHEMA  := packages/knowledge/src/uk_regs_knowledge/relational/schema.sql
 PDF     ?= data/sample.pdf
 TITLE   ?= "Approved Document B"
@@ -15,7 +18,9 @@ VER     ?= "2026-ed1"
         export-rules export-cursor export-claude export-bundle export-json \
         review ops \
         eval eval-offline eval-list \
-        source-once source-watch source-list source-poll
+        source-once source-watch source-list source-poll \
+        compose-up-app compose-down-app compose-build-app compose-logs-app \
+        docker-ingest docker-shell image-build image-push
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -171,6 +176,67 @@ source-watch:  ## Long-running scheduler (polls every $(INTERVAL) min)
 
 source-poll:  ## Trigger a poll via the API (needs `make api` running)
 	@curl -s -X POST "http://localhost:8000/sources/poll?force=true" | python -m json.tool
+
+# --------------------------------------------------------------------------- #
+#  Containerised application (API + worker + MCP) — Phase 7
+# --------------------------------------------------------------------------- #
+compose-up-app:  ## Build + start the full stack: data plane + API (+ profiles: ingest, mcp)
+	$(COMPOSE_APP) --profile ingest up -d --build api
+	@echo "API on http://localhost:8000  (docs: /docs, UI: /ui, ops: /ops)"
+
+compose-down-app:  ## Stop the app layer (keeps data volumes intact)
+	$(COMPOSE_APP) down
+
+compose-build-app:  ## Build all app images without starting them
+	$(COMPOSE_APP) build api worker mcp
+
+compose-logs-app:  ## Tail app-layer logs (api + worker)
+	$(COMPOSE_APP) logs -f --tail=200 api worker
+
+docker-ingest:  ## Ingest a PDF through the containerised worker
+	@test -n "$(PDF)" || (echo "Usage: make docker-ingest PDF=path/to/doc.pdf TITLE='ADB' VER='2026'" && exit 1)
+	$(COMPOSE_APP) run --rm worker ingest /pdfs/$(notdir $(PDF)) \
+		--title "$(TITLE)" --version "$(VER)" --apply
+
+docker-shell:  ## Open a shell in the API container (debug)
+	$(COMPOSE_APP) run --rm --entrypoint /bin/sh api
+
+# Build a single app image ad-hoc. Usage: make image-build SVC=api
+image-build:
+	@test -n "$(SVC)" || (echo "Usage: make image-build SVC=api|worker|mcp" && exit 1)
+	docker build -f infra/docker/Dockerfile.$(SVC) -t uk-regs-$(SVC):latest .
+
+# Build + push to a registry. Usage: make image-push SVC=api REG=ghcr.io/org
+image-push:
+	@test -n "$(SVC)" || (echo "Usage: make image-push SVC=api REG=ghcr.io/org" && exit 1)
+	@test -n "$(REG)"  || (echo "Set REG, e.g. REG=ghcr.io/your-org" && exit 1)
+	docker tag uk-regs-$(SVC):latest $(REG)/uk-regs-$(SVC):latest
+	docker push $(REG)/uk-regs-$(SVC):latest
+
+# --------------------------------------------------------------------------- #
+#  Terraform — AWS infrastructure (Phase 14)
+# --------------------------------------------------------------------------- #
+# Set TF_ENV=prod for production. Secrets must come from env vars, e.g.:
+#   TF_VAR_openai_api_key=sk-... make tf-apply
+#   TF_VAR_api_key=$(openssl rand -hex 32) make tf-apply TF_ENV=prod
+
+tf-init:  ## Initialise the backend + providers (run once)
+	cd $(TF_DIR) && terraform init
+
+tf-fmt:  ## Auto-format + validate Terraform files
+	cd $(TF_DIR) && terraform fmt -recursive && terraform validate
+
+tf-plan:  ## Show a plan for the $(TF_ENV) environment
+	cd $(TF_DIR) && terraform plan -var-file=$(TF_ENV).tfvars
+
+tf-apply:  ## Apply Terraform for the $(TF_ENV) environment
+	cd $(TF_DIR) && terraform apply -var-file=$(TF_ENV).tfvars -auto-approve
+
+tf-destroy:  ## Tear down the $(TF_ENV) environment (destructive)
+	cd $(TF_DIR) && terraform destroy -var-file=$(TF_ENV).tfvars
+
+tf-output:  ## Print all stack outputs (endpoint, secret ARNs, URL)
+	cd $(TF_DIR) && terraform output
 
 # --------------------------------------------------------------------------- #
 #  Misc

@@ -46,6 +46,7 @@ from uk_regs_export.renderers import (
 
 from uk_regs_api.auth import ApiKeyMiddleware
 from uk_regs_api.observability import setup_observability
+from uk_regs_api.ratelimit import get_limiter, setup_rate_limiting, validate_search_query
 from uk_regs_api.service import (
     RuleHit,
     changeset_to_dict,
@@ -63,9 +64,13 @@ app = FastAPI(
     version="0.5.0",
 )
 
-# Wire observability (logging, tracing, request-id middleware) + auth.
+# Wire observability (logging, tracing, request-id middleware) + auth + rate limits.
 setup_observability(app)
+setup_rate_limiting(app)
 app.add_middleware(ApiKeyMiddleware)
+
+# Lazy limiter reference for per-route decorators (None when slowapi absent).
+_limiter = get_limiter()
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -118,8 +123,28 @@ def readyz(response: Response) -> dict:
 # --------------------------------------------------------------------------- #
 #  Search
 # --------------------------------------------------------------------------- #
+def _search_impl(q: str, top_k: int, mode: str) -> dict:
+    """Shared search body used by both the API route and the MCP server."""
+    valid_modes = {"hybrid", "semantic", "keyword"}
+    if mode not in valid_modes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"mode must be one of {sorted(valid_modes)}, got '{mode}'",
+        )
+    q = validate_search_query(q)
+    backend = get_backend()
+    hits: list[RuleHit] = backend.search(q, top_k=top_k, mode=mode)  # type: ignore[call-arg]
+    return {
+        "query": q,
+        "mode": mode,
+        "count": len(hits),
+        "hits": [h.to_dict() for h in hits],
+    }
+
+
 @app.get("/search")
 def search(
+    request: Request,
     q: str = Query(..., description="Natural-language query, e.g. 'fire door rating'"),
     top_k: int = Query(10, ge=1, le=50),
     mode: str = Query(
@@ -141,21 +166,11 @@ def search(
 
     Falls back to keyword if embeddings are unavailable, so search never
     hard-fails.
+
+    **Rate-limited** to ``RATELIMIT_SEARCH`` per IP. Query length capped at
+    ``SEARCH_MAX_QUERY_CHARS``.
     """
-    valid_modes = {"hybrid", "semantic", "keyword"}
-    if mode not in valid_modes:
-        raise HTTPException(
-            status_code=400,
-            detail=f"mode must be one of {sorted(valid_modes)}, got '{mode}'",
-        )
-    backend = get_backend()
-    hits: list[RuleHit] = backend.search(q, top_k=top_k, mode=mode)  # type: ignore[call-arg]
-    return {
-        "query": q,
-        "mode": mode,
-        "count": len(hits),
-        "hits": [h.to_dict() for h in hits],
-    }
+    return _search_impl(q, top_k, mode)
 
 
 # --------------------------------------------------------------------------- #
@@ -246,6 +261,19 @@ def get_change_set(change_set_id: str) -> dict:
 _VALID_DECISIONS = {"applied", "rejected", "rolled_back"}
 
 
+def _log_audit(action: str, entity: str, entity_id: str, actor: str, payload: dict) -> None:
+    """Record an audit event. Best-effort: never fail the request on audit errors."""
+    try:
+        from uk_regs_knowledge.repositories.relational_repo import AuditRepository
+
+        AuditRepository().log(
+            actor=actor, action=action, entity=entity, entity_id=entity_id, payload=payload
+        )
+    except Exception:
+        # Audit logging is best-effort — must not break the user's action.
+        pass
+
+
 @app.post("/changes/{change_set_id}/review")
 def review_change_set(
     change_set_id: str,
@@ -257,6 +285,7 @@ def review_change_set(
     Apply a human review decision to a change-set.
 
     Returns the updated change-set. Used by both the JSON API and the HTMX UI.
+    Records the decision in the append-only audit trail.
     """
     if decision not in _VALID_DECISIONS:
         raise HTTPException(
@@ -267,6 +296,7 @@ def review_change_set(
     cs = backend.review_change_set(change_set_id, decision, reviewer, notes)
     if cs is None:
         raise HTTPException(status_code=404, detail=f"change-set '{change_set_id}' not found")
+    _log_audit(decision, "change_set", change_set_id, reviewer, {"notes": notes})
     return changeset_to_dict(cs)
 
 
@@ -517,6 +547,7 @@ def ui_review_submit(
     """HTMX endpoint: apply review then re-render the detail page."""
     backend = get_backend()
     backend.review_change_set(change_set_id, decision, reviewer, notes)
+    _log_audit(decision, "change_set", change_set_id, reviewer, {"notes": notes, "ui": "htmx"})
     cs = backend.get_change_set(change_set_id)
     if cs is None:
         raise HTTPException(status_code=404, detail="change-set not found")
@@ -580,3 +611,50 @@ def ops_stats(partial: bool = Query(False, description="Return HTML partial for 
         html = templates.env.get_template("ops_partial.html").render(stats=stats)
         return HTMLResponse(content=html)
     return stats.to_dict()
+
+
+# =========================================================================== #
+#  Audit trail (Phase §11)
+# =========================================================================== #
+@app.get("/audit")
+def list_audit(
+    entity: str | None = Query(None, description="Filter by entity (change_set, rule, document)"),
+    entity_id: str | None = Query(None, description="Filter by entity id"),
+    actor: str | None = Query(None, description="Filter by actor (user/system)"),
+    action: str | None = Query(None, description="Filter by action (ingest, apply, reject, …)"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """
+    Query the append-only audit trail (newest-first).
+
+    Every mutating action (ingest, review, export) is recorded here, giving a
+    complete, queryable history of who changed what, when, and why — essential
+    for a compliance-critical system.
+    """
+    backend = get_backend()
+    events = backend.list_audit_events(
+        entity=entity,
+        entity_id=entity_id,
+        actor=actor,
+        action=action,
+        limit=limit,
+        offset=offset,
+    )
+    return {"count": len(events), "events": events}
+
+
+@app.get("/ui/audit", response_class=HTMLResponse)
+def ui_audit(
+    request: Request,
+    entity: str | None = Query(None),
+    action: str | None = Query(None),
+) -> HTMLResponse:
+    """Audit trail page (HTML) — filterable history of all mutations."""
+    backend = get_backend()
+    events = backend.list_audit_events(entity=entity, action=action, limit=200)
+    return templates.TemplateResponse(
+        request,
+        "audit.html",
+        {"events": events, "filter_entity": entity, "filter_action": action},
+    )

@@ -11,7 +11,7 @@ For scanned/legacy docs, an OCR pass (see ocr.py) augments text blocks.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -25,13 +25,24 @@ _IMAGE_BLOCK = 1
 
 @dataclass(slots=True)
 class ParsedDocument:
-    """Result of parsing one PDF version."""
+    """Result of parsing one PDF version.
+
+    Attributes:
+        doc_id: stable document id
+        version: version label
+        pages: number of pages in the PDF
+        blocks: extracted content blocks in reading order
+        figure_block_ids: block ids of figure blocks
+        figure_images: mapping of figure object key -> PNG bytes. The pipeline
+            uploads these to object storage under the corresponding key.
+    """
 
     doc_id: str
     version: str
     pages: int
     blocks: list[ContentBlock]
     figure_block_ids: list[str]
+    figure_images: dict[str, bytes] = field(default_factory=dict)
 
 
 def parse_pdf(
@@ -51,10 +62,12 @@ def parse_pdf(
         page_dpi: DPI for rasterising figure regions (saved as images)
 
     Returns:
-        ParsedDocument with text + figure blocks, in reading order.
+        ParsedDocument with text + figure blocks (in reading order) and the
+        rendered figure images keyed by their storage key.
     """
     blocks: list[ContentBlock] = []
     figure_ids: list[str] = []
+    figure_images: dict[str, bytes] = {}
 
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         for page_no, page in enumerate(doc, start=1):
@@ -69,7 +82,10 @@ def parse_pdf(
 
                 if rb.get("type", 0) == _IMAGE_BLOCK:
                     # rasterised figure: rasterise the region for the VLM
-                    img_key = _render_block_image(page, bbox, page_dpi, doc_id, version)
+                    img_key, img_bytes = _render_block_image(
+                        page, bbox, page_dpi, doc_id, version
+                    )
+                    figure_images[img_key] = img_bytes
                     bid = ulid_like()
                     blocks.append(
                         ContentBlock(
@@ -118,7 +134,12 @@ def parse_pdf(
         blocks[i] = b
 
     return ParsedDocument(
-        doc_id=doc_id, version=version, pages=pages, blocks=blocks, figure_block_ids=figure_ids
+        doc_id=doc_id,
+        version=version,
+        pages=pages,
+        blocks=blocks,
+        figure_block_ids=figure_ids,
+        figure_images=figure_images,
     )
 
 
@@ -135,12 +156,12 @@ def _extract_block_text(rb: dict) -> str:
 
 def _render_block_image(
     page: fitz.Page, bbox: BoundingBox, dpi: int, doc_id: str, version: str
-) -> str:
+) -> tuple[str, bytes]:
     """
-    Rasterise a region of the page to PNG.
+    Rasterise a region of the page to PNG bytes.
 
-    NOTE: in production this is uploaded to object storage; the returned key
-    is a placeholder path. See knowledge.storage for the real upload.
+    Returns a ``(storage_key, png_bytes)`` tuple. The caller (pipeline) is
+    responsible for uploading ``png_bytes`` to object storage under ``key``.
     """
     clip = fitz.Rect(bbox.as_tuple())
     pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72), clip=clip)
@@ -148,21 +169,7 @@ def _render_block_image(
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     key = f"figures/{doc_id}/{version}/{ulid_like()}.png"
-    # caller (pipeline) uploads buf.getvalue() to storage under `key`
-    _PENDING_UPLOADS[key] = buf.getvalue()
-    return key
-
-
-# module-level staging area for rendered images, drained by the pipeline
-_PENDING_UPLOADS: dict[str, bytes] = {}
-
-
-def drain_pending_uploads() -> dict[str, bytes]:
-    """Return and clear staged figure images."""
-    global _PENDING_UPLOADS
-    pending = _PENDING_UPLOADS
-    _PENDING_UPLOADS = {}
-    return pending
+    return key, buf.getvalue()
 
 
 def _classify_text_block(text: str, rb: dict) -> BlockType:

@@ -1,0 +1,137 @@
+# =============================================================================
+# UK Regs Pipeline — application overlay
+#
+# Builds + runs the API, an ingest worker, and the MCP server on top of the
+# data-plane stack (docker-compose.yml). Use both files together:
+#
+#   docker compose \
+#     -f infra/compose/docker-compose.yml \
+#     -f infra/compose/docker-compose.app.yml \
+#     up -d --build
+#
+# Or with the helper in the Makefile:
+#   make compose-up-app
+#
+# Notes
+#   * Build context is the repo root so the Dockerfiles can COPY the workspace.
+#   * Services talk to the data plane over the `uk-regs` network; the API is
+#     the only service published to the host (port 8000).
+#   * The worker is one-shot: override `command` to run a real ingest, e.g.
+#       docker compose run --rm worker ingest /pdfs/adb.pdf --title ADB --version 2026
+# =============================================================================
+
+name: uk-regs
+
+# Re-declare so `docker compose -f ... -f ...` merges cleanly. Volumes already
+# exist in the base file; this is a no-op when both files are used together.
+volumes:
+  postgres_data:
+  neo4j_data:
+  minio_data:
+
+services:
+  # ---- FastAPI context-serving API ---------------------------------------
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    image: uk-regs-api:latest
+    container_name: ukregs-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    environment:
+      ENV: dev
+      # Inside the compose network the data services are reached by name.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ukregs
+      POSTGRES_USER: ukregs
+      POSTGRES_PASSWORD: ukregs
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: uk-regs
+      S3_REGION: us-east-1
+      UK_REGS_BACKEND: auto
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      # Pass through secrets from the host env (undefined = unset in container).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      API_KEY: ${API_KEY:-}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # ---- Ingest worker (one-shot; run via `docker compose run`) -------------
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.worker
+    image: uk-regs-worker:latest
+    container_name: ukregs-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ukregs
+      POSTGRES_USER: ukregs
+      POSTGRES_PASSWORD: ukregs
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: password
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: uk-regs
+      S3_REGION: us-east-1
+      UK_REGS_BACKEND: auto
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+    volumes:
+      # Drop new PDFs in ./pdfs and ingest them as /pdfs inside the container.
+      - ../../pdfs:/pdfs:ro
+    # Default profile keeps the container alive for `docker compose run`.
+    # Override with: command: ingest /pdfs/adb.pdf --title ADB --version 2026 --apply
+    profiles: ["ingest"]
+    restart: "no"
+
+  # ---- MCP server (stdio; for IDE integration) ---------------------------
+  # Usually run ad-hoc rather than as a long-lived service. Provided here so a
+  # single `up` brings the full system up; cursor/cursor configs can also point
+  # at the image directly.
+  mcp:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.mcp
+    image: uk-regs-mcp:latest
+    container_name: ukregs-mcp
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      # Talk to the in-network API rather than the in-process backend.
+      UK_REGS_API_URL: http://api:8000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ukregs
+      POSTGRES_USER: ukregs
+      POSTGRES_PASSWORD: ukregs
+      UK_REGS_BACKEND: auto
+    stdin_open: true
+    profiles: ["mcp"]
+    restart: "no"

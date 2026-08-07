@@ -61,7 +61,15 @@ class Settings(BaseSettings):
     llm_timeout_s: float = 60.0
 
     # ---- Embeddings ----
+    # Provider selector: "openai" (default), "cohere", or "mock" (deterministic
+    # hash-based vectors for tests / offline dev — no network calls).
+    embedding_provider: Literal["openai", "cohere", "mock"] = "openai"
     embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
+    # Cohere
+    cohere_api_key: str | None = None
+    cohere_model: str = "embed-english-v3.0"
+    cohere_input_type: str = "search_document"
 
     # ---- Pipeline behaviour ----
     confidence_threshold: float = Field(
@@ -90,6 +98,23 @@ class Settings(BaseSettings):
         default=None,
         description="If set, mutating routes require X-API-Key header. Unset = open (dev mode).",
     )
+
+    # ---- Rate limiting (slowapi) ----
+    # Format: "<count> per <unit>" e.g. "60/minute". Set to empty to disable.
+    ratelimit_global: str = Field(
+        default="200/minute",
+        description="Global per-IP rate limit applied to all API routes.",
+    )
+    ratelimit_search: str = Field(
+        default="60/minute",
+        description="Per-IP limit for expensive /search queries (vector + BM25).",
+    )
+    ratelimit_mutate: str = Field(
+        default="20/minute",
+        description="Per-IP limit for mutating routes (review, ingest, export).",
+    )
+    # Maximum query length (chars) accepted by /search to prevent abuse.
+    search_max_query_chars: int = Field(default=2000, ge=10, le=10_000)
 
     # ---- Logging (structlog) ----
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

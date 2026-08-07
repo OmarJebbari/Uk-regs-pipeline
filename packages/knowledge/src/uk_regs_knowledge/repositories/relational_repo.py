@@ -28,15 +28,29 @@ from uk_regs_core import (
 from uk_regs_knowledge.relational.connection import get_pool
 
 
+def _escape_like(query: str) -> str:
+    """Escape LIKE/ILIKE wildcard characters in a user-supplied query.
+
+    Escapes ``%``, ``_``, and the default escape char ``\\`` so that a query
+    containing these characters is matched literally rather than interpreted
+    as wildcards. The result is intended to be wrapped with surrounding
+    ``%`` characters and used with an explicit ``ESCAPE '\\'`` clause.
+    """
+    return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 # --------------------------------------------------------------------------- #
-#  Documents
+#  Base
 # --------------------------------------------------------------------------- #
-class DocumentRepository:
+class BaseRepository:
+    """Shared connection-pool plumbing for all Postgres repositories."""
+
     def __init__(self, pool=None) -> None:
         self._pool = pool or get_pool()
 
     @contextmanager
     def _conn(self) -> Iterator:
+        """Borrow a pooled connection, commit on success, rollback on error."""
         conn = self._pool.getconn()
         try:
             yield conn
@@ -47,6 +61,11 @@ class DocumentRepository:
         finally:
             self._pool.putconn(conn)
 
+
+# --------------------------------------------------------------------------- #
+#  Documents
+# --------------------------------------------------------------------------- #
+class DocumentRepository(BaseRepository):
     def upsert_document(self, doc: Document) -> None:
         with self._conn() as c, c.cursor() as cur:
             cur.execute(
@@ -113,22 +132,7 @@ class DocumentRepository:
 # --------------------------------------------------------------------------- #
 #  Rules
 # --------------------------------------------------------------------------- #
-class RuleRepository:
-    def __init__(self, pool=None) -> None:
-        self._pool = pool or get_pool()
-
-    @contextmanager
-    def _conn(self) -> Iterator:
-        conn = self._pool.getconn()
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            self._pool.putconn(conn)
-
+class RuleRepository(BaseRepository):
     def upsert_rule(self, rule: Rule, embedding: list[float] | None = None) -> None:
         emb_sql = ", embedding"
         emb_val = ", %s"
@@ -262,7 +266,7 @@ class RuleRepository:
         Falls back to ``search_fulltext`` (ILIKE) if the ``tsv`` column is not
         present (older deployments) so search never hard-fails mid-migration.
         """
-        like = f"%{query.lower()}%"
+        like = f"%{_escape_like(query.lower())}%"
         with self._conn() as c, c.cursor() as cur:
             try:
                 cur.execute(
@@ -282,11 +286,14 @@ class RuleRepository:
                 cur.execute(
                     """
                     SELECT *,
-                           (text ILIKE %s)::int + (title ILIKE %s)::int * 2
-                             + (normalized_form ILIKE %s)::int AS rank
+                           (text ILIKE %s ESCAPE '\\')::int
+                             + (title ILIKE %s ESCAPE '\\')::int * 2
+                             + (normalized_form ILIKE %s ESCAPE '\\')::int AS rank
                     FROM rules
                     WHERE status = 'active'
-                      AND (text ILIKE %s OR title ILIKE %s OR normalized_form ILIKE %s)
+                      AND (text ILIKE %s ESCAPE '\\'
+                           OR title ILIKE %s ESCAPE '\\'
+                           OR normalized_form ILIKE %s ESCAPE '\\')
                     ORDER BY rank DESC
                     LIMIT %s
                     """,
@@ -328,16 +335,19 @@ class RuleRepository:
         Uses ILIKE over text + normalized_form + title; scores by crude relevance.
         Returns (rule, score) where score is in [0, 1].
         """
-        like = f"%{query.lower()}%"
+        like = f"%{_escape_like(query.lower())}%"
         with self._conn() as c, c.cursor() as cur:
             cur.execute(
                 """
                 SELECT *,
-                       (text ILIKE %s)::int + (title ILIKE %s)::int * 2
-                         + (normalized_form ILIKE %s)::int AS score
+                       (text ILIKE %s ESCAPE '\\')::int
+                         + (title ILIKE %s ESCAPE '\\')::int * 2
+                         + (normalized_form ILIKE %s ESCAPE '\\')::int AS score
                 FROM rules
                 WHERE status = 'active'
-                  AND (text ILIKE %s OR title ILIKE %s OR normalized_form ILIKE %s)
+                  AND (text ILIKE %s ESCAPE '\\'
+                       OR title ILIKE %s ESCAPE '\\'
+                       OR normalized_form ILIKE %s ESCAPE '\\')
                 ORDER BY score DESC, section_path
                 LIMIT %s
                 """,
@@ -382,22 +392,7 @@ class RuleRepository:
 # --------------------------------------------------------------------------- #
 #  Change-sets
 # --------------------------------------------------------------------------- #
-class ChangeSetRepository:
-    def __init__(self, pool=None) -> None:
-        self._pool = pool or get_pool()
-
-    @contextmanager
-    def _conn(self) -> Iterator:
-        conn = self._pool.getconn()
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            self._pool.putconn(conn)
-
+class ChangeSetRepository(BaseRepository):
     def save(self, cs: ChangeSet) -> None:
         with self._conn() as c, c.cursor() as cur:
             cur.execute(
@@ -479,10 +474,30 @@ class ChangeSetRepository:
             if cur.rowcount == 0:
                 return None
 
-        return self.list_changes(limit=1000) and next(
-            (cs for cs in self.list_changes(limit=1000) if cs.change_set_id == change_set_id),
-            None,
-        )
+            cur.execute(
+                """
+                SELECT * FROM change_sets WHERE change_set_id = %s
+                """,
+                (change_set_id,),
+            )
+            cs_row = cur.fetchone()
+            if cs_row is None:
+                return None
+            cs_cols = [d[0] for d in cur.description]
+            csd = dict(zip(cs_cols, cs_row, strict=False))
+
+            cur.execute(
+                "SELECT * FROM rule_deltas WHERE change_set_id = %s "
+                "ORDER BY decision, new_rule_id",
+                (csd["change_set_id"],),
+            )
+            d_rows = cur.fetchall()
+            d_cols = [d[0] for d in cur.description]
+            deltas: list[RuleDelta] = []
+            for d_row in d_rows:
+                dr = dict(zip(d_cols, d_row, strict=False))
+                deltas.append(self._row_to_delta(dr))
+        return self._row_to_changeset(csd, deltas)
 
     def count_by_status(self) -> dict[str, int]:
         """Change-set counts grouped by status (proposed, applied, …)."""
@@ -497,8 +512,6 @@ class ChangeSetRepository:
         limit: int = 50,
     ) -> list[ChangeSet]:
         """List change-sets (optionally filtered by status), newest first."""
-        from uk_regs_core.enums import Decision
-
         if status:
             sql = "SELECT * FROM change_sets WHERE status = %s ORDER BY created_at DESC LIMIT %s"
             params: tuple = (status, limit)
@@ -523,52 +536,45 @@ class ChangeSetRepository:
                 deltas: list[RuleDelta] = []
                 for d_row in d_rows:
                     dr = dict(zip(d_cols, d_row, strict=False))
-                    deltas.append(
-                        RuleDelta(
-                            new_rule_id=dr["new_rule_id"],
-                            matched_rule_id=dr["matched_rule_id"],
-                            decision=Decision(dr["decision"]),
-                            confidence=float(dr["confidence"]),
-                            rationale=dr["rationale"],
-                            diff_summary=dr["diff_summary"],
-                        )
-                    )
-                result.append(
-                    ChangeSet(
-                        change_set_id=csd["change_set_id"],
-                        doc_id=csd["doc_id"],
-                        version=csd["version"],
-                        created_at=csd["created_at"],
-                        deltas=deltas,
-                        status=csd["status"],
-                        reviewed_by=csd["reviewed_by"],
-                        reviewed_at=csd["reviewed_at"],
-                        review_notes=csd["review_notes"],
-                    )
-                )
+                    deltas.append(self._row_to_delta(dr))
+                result.append(self._row_to_changeset(csd, deltas))
         return result
+
+    @staticmethod
+    def _row_to_delta(dr: dict) -> RuleDelta:
+        """Hydrate a ``RuleDelta`` from a rule_deltas row dict."""
+        from uk_regs_core.enums import Decision
+
+        return RuleDelta(
+            new_rule_id=dr["new_rule_id"],
+            matched_rule_id=dr["matched_rule_id"],
+            decision=Decision(dr["decision"]),
+            confidence=float(dr["confidence"]),
+            rationale=dr["rationale"],
+            diff_summary=dr["diff_summary"],
+        )
+
+    @staticmethod
+    def _row_to_changeset(csd: dict, deltas: list[RuleDelta]) -> ChangeSet:
+        """Hydrate a ``ChangeSet`` from a change_sets row dict + deltas."""
+        return ChangeSet(
+            change_set_id=csd["change_set_id"],
+            doc_id=csd["doc_id"],
+            version=csd["version"],
+            created_at=csd["created_at"],
+            deltas=deltas,
+            status=csd["status"],
+            reviewed_by=csd["reviewed_by"],
+            reviewed_at=csd["reviewed_at"],
+            review_notes=csd["review_notes"],
+        )
 
 
 # --------------------------------------------------------------------------- #
 #  Figures
 # --------------------------------------------------------------------------- #
-class FigureRepository:
+class FigureRepository(BaseRepository):
     """CRUD for diagrams linked to rules (stored in the ``figures`` table)."""
-
-    def __init__(self, pool=None) -> None:
-        self._pool = pool or get_pool()
-
-    @contextmanager
-    def _conn(self) -> Iterator:
-        conn = self._pool.getconn()
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            self._pool.putconn(conn)
 
     def save(self, fig: Figure) -> None:
         with self._conn() as c, c.cursor() as cur:
@@ -650,3 +656,133 @@ class FigureRepository:
                 url=None,
             ),
         )
+
+
+# --------------------------------------------------------------------------- #
+#  Audit
+# --------------------------------------------------------------------------- #
+class AuditRepository(BaseRepository):
+    """
+    Append-only audit trail for all mutations (ingest, review, rollback).
+
+    Every mutating API/pipeline action should call :meth:`log` so there is a
+    complete, queryable history of who changed what, when, and why.
+    """
+
+    def log(
+        self,
+        *,
+        actor: str,
+        action: str,
+        entity: str,
+        entity_id: str,
+        payload: dict | None = None,
+    ) -> int:
+        """
+        Record an audit event.
+
+        Args:
+            actor: Who performed the action (user email, system, pipeline-run-id).
+            action: What was done (``ingest``, ``apply``, ``reject``,
+                ``rollback``, ``export``).
+            entity: Table/entity affected (``change_set``, ``rule``,
+                ``document``).
+            entity_id: Primary key of the affected entity.
+            payload: Arbitrary JSON metadata (before/after, rationale, …).
+
+        Returns:
+            The ``id`` of the newly inserted audit event.
+        """
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO audit_events (actor, action, entity, entity_id, payload)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    actor,
+                    action,
+                    entity,
+                    entity_id,
+                    json.dumps(payload or {}),
+                ),
+            )
+            return cur.fetchone()[0]
+
+    def list_events(
+        self,
+        *,
+        entity: str | None = None,
+        entity_id: str | None = None,
+        actor: str | None = None,
+        action: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """
+        Query the audit trail with optional filters. Results are newest-first.
+
+        Returns a list of dicts with keys: ``id``, ``actor``, ``action``,
+        ``entity``, ``entity_id``, ``payload``, ``at``.
+        """
+        clauses: list[str] = []
+        params: list = []
+        if entity:
+            clauses.append("entity = %s")
+            params.append(entity)
+        if entity_id:
+            clauses.append("entity_id = %s")
+            params.append(entity_id)
+        if actor:
+            clauses.append("actor = %s")
+            params.append(actor)
+        if action:
+            clauses.append("action = %s")
+            params.append(action)
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend([limit, offset])
+
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT id, actor, action, entity, entity_id, payload, at
+                FROM audit_events
+                {where}
+                ORDER BY at DESC, id DESC
+                LIMIT %s OFFSET %s
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+
+        results: list[dict] = []
+        for row in rows:
+            d = dict(zip(cols, row, strict=False))
+            # payload comes back as a Python dict from psycopg's JSONB adapter
+            if isinstance(d.get("payload"), str):
+                d["payload"] = json.loads(d["payload"])
+            results.append(d)
+        return results
+
+    def count_events(
+        self,
+        *,
+        entity: str | None = None,
+        action: str | None = None,
+    ) -> int:
+        """Total event count, optionally filtered (for dashboard stats)."""
+        clauses: list[str] = []
+        params: list = []
+        if entity:
+            clauses.append("entity = %s")
+            params.append(entity)
+        if action:
+            clauses.append("action = %s")
+            params.append(action)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM audit_events {where}", params)
+            return cur.fetchone()[0]

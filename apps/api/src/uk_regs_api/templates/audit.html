@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Audit Trail · UK Regs{% endblock %}
+
+{% block content %}
+<h1>Audit Trail</h1>
+<p>Append-only history of every mutating action (ingest, review, export).</p>
+
+<!-- Filter bar -->
+<div class="refresh-bar" style="margin-top: 24px;">
+    <form method="get" action="/ui/audit" style="display:flex; gap:12px; align-items:flex-end;">
+        <div>
+            <label>Entity</label>
+            <select name="entity" onchange="this.form.submit()">
+                <option value="">All</option>
+                <option value="change_set" {% if filter_entity == 'change_set' %}selected{% endif %}>Change Set</option>
+                <option value="rule" {% if filter_entity == 'rule' %}selected{% endif %}>Rule</option>
+                <option value="document" {% if filter_entity == 'document' %}selected{% endif %}>Document</option>
+            </select>
+        </div>
+        <div>
+            <label>Action</label>
+            <select name="action" onchange="this.form.submit()">
+                <option value="">All</option>
+                <option value="applied" {% if filter_action == 'applied' %}selected{% endif %}>Applied</option>
+                <option value="rejected" {% if filter_action == 'rejected' %}selected{% endif %}>Rejected</option>
+                <option value="rolled_back" {% if filter_action == 'rolled_back' %}selected{% endif %}>Rolled Back</option>
+                <option value="ingest" {% if filter_action == 'ingest' %}selected{% endif %}>Ingest</option>
+                <option value="export" {% if filter_action == 'export' %}selected{% endif %}>Export</option>
+            </select>
+        </div>
+        <button type="submit" class="btn-sm">Filter</button>
+    </form>
+    <span class="ts">{{ events | length }} events</span>
+</div>
+
+<!-- Events table -->
+{% if events %}
+<table class="ops-table" style="margin-top: 16px;">
+    <thead>
+        <tr>
+            <th>Timestamp</th>
+            <th>Action</th>
+            <th>Entity</th>
+            <th>Actor</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for ev in events %}
+        <tr>
+            <td style="font-family: var(--mono); font-size: 12px; color: var(--text-muted);">
+                {{ ev.timestamp | fmt_dt }}
+            </td>
+            <td>
+                {% if ev.action in ['applied'] %}
+                    <span class="dot dot-ok"></span>
+                {% elif ev.action in ['rejected', 'rolled_back'] %}
+                    <span class="dot dot-fail"></span>
+                {% else %}
+                    <span class="dot dot-warn"></span>
+                {% endif %}
+                <strong style="text-transform: capitalize;">{{ ev.action }}</strong>
+            </td>
+            <td style="font-family: var(--mono); font-size: 12px;">
+                {{ ev.entity }}<br>
+                <span style="color: var(--text-dim); font-size: 11px;">{{ ev.entity_id }}</span>
+            </td>
+            <td style="font-size: 13px;">{{ ev.actor }}</td>
+            <td style="font-family: var(--mono); font-size: 11px; color: var(--text-muted); max-width: 400px; word-break: break-all;">
+                {{ ev.payload }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty">
+    <h3>No audit events yet</h3>
+    <p style="margin-top: 8px;">Actions like ingesting PDFs or reviewing change-sets will appear here.</p>
+</div>
+{% endif %}
+{% endblock %}

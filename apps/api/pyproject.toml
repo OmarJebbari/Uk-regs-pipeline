@@ -16,6 +16,7 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.24",
     "opentelemetry-instrumentation-fastapi>=0.45b0",
     "langfuse>=2.0",
+    "slowapi>=0.1.9",
 ]
 
 [build-system]
