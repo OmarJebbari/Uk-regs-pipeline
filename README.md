@@ -2,8 +2,11 @@
 
 [![CI](https://github.com/OmarJebbari/Uk-regs-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OmarJebbari/Uk-regs-pipeline/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Tests: 157](https://img.shields.io/badge/tests-157-brightgreen.svg)](#development)
 [![Evals: 100%](https://img.shields.io/badge/evals-100%25-brightgreen.svg)](#evaluation--quality-gate-phase-4a)
+[![Packages: 8](https://img.shields.io/badge/packages-8-blueviolet.svg)](#monorepo-layout)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-black.svg)](https://docs.astral.sh/ruff/)
 
 > A **versioned, cited, GraphRAG context-intelligence pipeline** for UK Building Regulations.
 > Turns regulation PDFs (text + diagrams) into a single, queryable "current truth" that an
@@ -23,6 +26,37 @@ Each release is a dense PDF of rules + diagrams. Engineering teams need to:
    against the latest rules — **with citations**, because compliance is critical.
 
 This pipeline automates all three.
+
+---
+
+## Features at a glance
+
+| Capability | What it does |
+|---|---|
+| 📄 **Multi-modal PDF intake** | Layout-aware parsing (Docling / PyMuPDF), OCR fallback, figure/diagram extraction with captions |
+| 🧠 **Hybrid extraction** | Deterministic regex/grammar extractors (dimensions, standards, section IDs) *before* LLM calls — precise and cheap |
+| 🔄 **Bitemporal reconciliation** | New PDFs are diffed against the corpus: rules are `added` / `amended` / `superseded` / `unchanged` — nothing is ever lost |
+| 🕸️ **GraphRAG knowledge plane** | Postgres + pgvector for vectors/facts, Neo4j for supersession & dependency edges |
+| 🔍 **Hybrid search** | BM25 + vector retrieval fused via Reciprocal Rank Fusion — exact codes *and* semantic intent |
+| 🤖 **IDE-native serving** | Live MCP server (Cursor/Claude), REST API, *and* committed static export (`.cursor/rules`, `CLAUDE.md`) |
+| ✅ **100% eval gate** | Golden-set regression harness (extraction, reconciliation, retrieval, LLM-judge) blocks bad commits in CI |
+| 👀 **Human-in-the-loop** | Dark-themed review dashboard for change-set approval/rejection before rules go live |
+| 📡 **Source monitoring** | Auto-polls gov.uk / publishers for new PDFs and ingests them on a schedule |
+| 🔐 **Production-ready** | API key auth, structlog JSON logging, OpenTelemetry tracing, Langfuse LLM observability — all opt-in, graceful dev-mode defaults |
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| **Language** | Python 3.12+, fully type-hinted (Pydantic v2) |
+| **Package manager** | [uv](https://docs.astral.sh/uv/) workspace monorepo (8 packages) |
+| **Extraction** | PyMuPDF, Docling, PaddleOCR/Tesseract, structured LLM outputs (OpenAI / Anthropic / Bedrock) |
+| **Knowledge store** | PostgreSQL + pgvector, Neo4j, MinIO/S3 (immutable originals) |
+| **Serving** | FastAPI (REST + Jinja2/HTMX dashboards), MCP server (stdio) |
+| **Quality** | pytest (157 tests), ruff, golden-set evals (4 suites, 100% gate), DeepEval/RAGAS metrics |
+| **Observability** | structlog, OpenTelemetry, Langfuse |
+| **CI/CD** | GitHub Actions (lint + test + evals), pre-commit hooks, Dependabot |
+| **Infra** | Docker Compose, Terraform-ready |
 
 ---
 
