@@ -16,17 +16,17 @@ from typing import Any
 
 from uk_regs_core import ConfigError, Settings, get_settings
 
-_pool: Any = None  # SimpleConnectionPool | None
+_pool: Any = None  # psycopg_pool.ConnectionPool | None
 _lock = threading.Lock()
 
 
 def _import_pool_cls() -> Any:
-    """Import SimpleConnectionPool lazily to keep the module import-safe."""
+    """Import ConnectionPool lazily to keep the module import-safe."""
     try:
-        from psycopg.pool import SimpleConnectionPool
+        from psycopg_pool import ConnectionPool
     except ImportError as e:  # pragma: no cover - depends on env
-        raise ConfigError("psycopg/pool not available. Install 'psycopg[binary,pool]'.") from e
-    return SimpleConnectionPool
+        raise ConfigError("psycopg-pool not available. Install 'psycopg[binary,pool]'.") from e
+    return ConnectionPool
 
 
 def get_pool(settings: Settings | None = None) -> Any:
@@ -39,11 +39,16 @@ def get_pool(settings: Settings | None = None) -> Any:
         s = settings or get_settings()
         if not s.postgres_dsn:
             raise ConfigError("POSTGRES_DSN is not set")
+        # psycopg 3 API: ConnectionPool(conninfo=..., min_size=..., max_size=...).
+        # ``application_name`` and other libpq params are passed via ``kwargs``.
         _pool = _import_pool_cls()(
-            minconn=2,
-            maxconn=10,
-            dsn=s.postgres_dsn,
-            application_name="uk-regs-pipeline",
+            conninfo=s.postgres_dsn,
+            min_size=2,
+            max_size=10,
+            kwargs={"application_name": "uk-regs-pipeline"},
+            # Explicit: keep the historical eager-open behaviour. The default
+            # will switch to ``open=False`` (lazy) in a future psycopg-pool.
+            open=True,
         )
     return _pool
 
@@ -51,7 +56,7 @@ def get_pool(settings: Settings | None = None) -> Any:
 def close_pool() -> None:
     global _pool
     if _pool is not None:
-        _pool.closeall()
+        _pool.close()
         _pool = None
 
 
@@ -60,15 +65,13 @@ def init_schema(settings: Settings | None = None) -> None:
     import importlib.resources
 
     pool = get_pool(settings)
-    conn = pool.getconn()
-    try:
-        # schema.sql lives in the same package
-        schema = (
-            importlib.resources.files("uk_regs_knowledge.relational")
-            .joinpath("schema.sql")
-            .read_text(encoding="utf-8")
-        )
-        with conn, conn.cursor() as cur:
-            cur.execute(schema)
-    finally:
-        pool.putconn(conn)
+    # schema.sql lives in the same package
+    schema = (
+        importlib.resources.files("uk_regs_knowledge.relational")
+        .joinpath("schema.sql")
+        .read_text(encoding="utf-8")
+    )
+    # ``pool.connection()`` checks out a connection, commits on a clean exit,
+    # rolls back on error, and returns the connection to the pool automatically.
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(schema)

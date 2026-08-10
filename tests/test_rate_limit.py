@@ -1,7 +1,6 @@
 """Tests for rate-limit config + search query validation (§8)."""
 
 import pytest
-
 from uk_regs_api.ratelimit import validate_search_query
 
 

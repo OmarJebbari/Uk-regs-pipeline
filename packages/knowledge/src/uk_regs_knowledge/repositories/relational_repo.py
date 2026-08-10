@@ -50,16 +50,14 @@ class BaseRepository:
 
     @contextmanager
     def _conn(self) -> Iterator:
-        """Borrow a pooled connection, commit on success, rollback on error."""
-        conn = self._pool.getconn()
-        try:
+        """Borrow a pooled connection, commit on success, rollback on error.
+
+        Uses psycopg 3's ``pool.connection()`` context manager, which checks
+        out a connection, commits on a clean exit, rolls back on error, and
+        returns the connection to the pool automatically.
+        """
+        with self._pool.connection() as conn:
             yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            self._pool.putconn(conn)
 
 
 # --------------------------------------------------------------------------- #
@@ -487,8 +485,7 @@ class ChangeSetRepository(BaseRepository):
             csd = dict(zip(cs_cols, cs_row, strict=False))
 
             cur.execute(
-                "SELECT * FROM rule_deltas WHERE change_set_id = %s "
-                "ORDER BY decision, new_rule_id",
+                "SELECT * FROM rule_deltas WHERE change_set_id = %s ORDER BY decision, new_rule_id",
                 (csd["change_set_id"],),
             )
             d_rows = cur.fetchall()

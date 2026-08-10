@@ -11,6 +11,8 @@ Both share the same Protocol so the monitor is agnostic to the backend.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Protocol
 
@@ -89,25 +91,24 @@ class PostgresStateStore:
 
         self._pool_getter = get_pool
 
-    def _conn(self):  # type: ignore[no-untyped-def]
-        pool = self._pool_getter()
-        return pool.getconn()
+    @contextmanager
+    def _conn(self) -> Iterator:
+        """Borrow a pooled connection (psycopg 3 ``pool.connection()``).
 
-    def _put(self, conn) -> None:  # type: ignore[no-untyped-def]
-        self._pool_getter().putconn(conn)
+        Checks out a connection, commits on a clean exit, rolls back on error,
+        and returns the connection to the pool automatically.
+        """
+        with self._pool_getter().connection() as conn:
+            yield conn
 
     def get_seen(self, source_id: str) -> dict[str, SourceState]:
-        conn = self._conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT document_id, version, title, url, sha256, size_bytes, published_at "
-                    "FROM source_documents WHERE source_id = %s",
-                    (source_id,),
-                )
-                rows = cur.fetchall()
-        finally:
-            self._put(conn)
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT document_id, version, title, url, sha256, size_bytes, published_at "
+                "FROM source_documents WHERE source_id = %s",
+                (source_id,),
+            )
+            rows = cur.fetchall()
         out: dict[str, SourceState] = {}
         for (
             document_id,
@@ -131,66 +132,54 @@ class PostgresStateStore:
         return out
 
     def mark_seen(self, source_id: str, state: SourceState) -> None:
-        conn = self._conn()
-        try:
-            with conn, conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO source_documents
-                        (source_id, document_id, version, title, url,
-                         sha256, size_bytes, published_at, last_checked_at, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), 'ingested')
-                    ON CONFLICT (source_id, document_id) DO UPDATE SET
-                        version         = EXCLUDED.version,
-                        title           = EXCLUDED.title,
-                        url             = EXCLUDED.url,
-                        sha256          = EXCLUDED.sha256,
-                        size_bytes      = EXCLUDED.size_bytes,
-                        published_at    = EXCLUDED.published_at,
-                        last_checked_at = now(),
-                        status          = 'ingested'
-                    """,
-                    (
-                        source_id,
-                        state.document_id,
-                        state.version,
-                        state.title,
-                        state.url,
-                        state.sha256,
-                        state.size_bytes,
-                        state.published_at,
-                    ),
-                )
-        finally:
-            self._put(conn)
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO source_documents
+                    (source_id, document_id, version, title, url,
+                     sha256, size_bytes, published_at, last_checked_at, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), 'ingested')
+                ON CONFLICT (source_id, document_id) DO UPDATE SET
+                    version         = EXCLUDED.version,
+                    title           = EXCLUDED.title,
+                    url             = EXCLUDED.url,
+                    sha256          = EXCLUDED.sha256,
+                    size_bytes      = EXCLUDED.size_bytes,
+                    published_at    = EXCLUDED.published_at,
+                    last_checked_at = now(),
+                    status          = 'ingested'
+                """,
+                (
+                    source_id,
+                    state.document_id,
+                    state.version,
+                    state.title,
+                    state.url,
+                    state.sha256,
+                    state.size_bytes,
+                    state.published_at,
+                ),
+            )
 
     def last_poll(self, source_id: str) -> datetime | None:
-        conn = self._conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT last_polled_at FROM source_poll_state WHERE source_id = %s",
-                    (source_id,),
-                )
-                row = cur.fetchone()
-            return row[0] if row else None
-        finally:
-            self._put(conn)
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT last_polled_at FROM source_poll_state WHERE source_id = %s",
+                (source_id,),
+            )
+            row = cur.fetchone()
+        return row[0] if row else None
 
     def set_last_poll(self, source_id: str, when: datetime) -> None:
-        conn = self._conn()
-        try:
-            with conn, conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO source_poll_state (source_id, last_polled_at)
-                    VALUES (%s, %s)
-                    ON CONFLICT (source_id) DO UPDATE SET last_polled_at = EXCLUDED.last_polled_at
-                    """,
-                    (source_id, when),
-                )
-        finally:
-            self._put(conn)
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO source_poll_state (source_id, last_polled_at)
+                VALUES (%s, %s)
+                ON CONFLICT (source_id) DO UPDATE SET last_polled_at = EXCLUDED.last_polled_at
+                """,
+                (source_id, when),
+            )
 
 
 # --------------------------------------------------------------------------- #

@@ -110,7 +110,9 @@ def _dict_to_rule(d: dict) -> Rule:
 def render(
     api: Annotated[
         str | None,
-        typer.Option("--api", help="Base URL of the running context API (e.g. http://localhost:8000)"),
+        typer.Option(
+            "--api", help="Base URL of the running context API (e.g. http://localhost:8000)"
+        ),
     ] = None,
     json_file: Annotated[
         Path | None,
@@ -162,9 +164,7 @@ def render(
         target.write_text(content, encoding="utf-8")
         typer.echo(f"  ✓ {target}  ({len(content):,} bytes)")
 
-    typer.secho(
-        f"\n✅ Exported {len(bundle)} files to {out}/", fg=typer.colors.GREEN
-    )
+    typer.secho(f"\n✅ Exported {len(bundle)} files to {out}/", fg=typer.colors.GREEN)
     typer.echo(
         "\nNext steps:\n"
         "  • Copy .cursor/rules/ into your project root for Cursor IDE.\n"

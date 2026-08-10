@@ -82,12 +82,14 @@ def render_cursor_mdc(rules: list[Rule]) -> dict[str, str]:
             rendered_globs = ", ".join(f'"{g}"' for g in globs)
             lines.append(f"globs: [{rendered_globs}]")
         else:
-            lines.append('globs: []')
-        lines.extend([
-            "alwaysApply: false",
-            "---",
-            "",
-        ])
+            lines.append("globs: []")
+        lines.extend(
+            [
+                "alwaysApply: false",
+                "---",
+                "",
+            ]
+        )
         lines.extend(_render_rule_section(cat_rules, title=title))
         out[f".cursor/rules/{cat}.mdc"] = "\n".join(lines)
 
@@ -143,7 +145,7 @@ def render_claude_md(rules: list[Rule]) -> tuple[str, str]:
         "2. For every constant, threshold, or dimension you encode, cite the "
         "``rule_id`` and source page in a code comment, e.g.:",
         "   ```python",
-        '   # rule-fire-001: AD-B 2026-ed1 p.42 — FD30 minimum',
+        "   # rule-fire-001: AD-B 2026-ed1 p.42 — FD30 minimum",
         "   FIRE_DOOR_RESISTANCE_MIN = 30  # minutes",
         "   ```",
         "3. If a rule appears missing or contradictory, flag it rather than "
@@ -158,9 +160,7 @@ def render_claude_md(rules: list[Rule]) -> tuple[str, str]:
         lines.append("")
         for r in by_cat[cat]:
             params = (
-                ", ".join(f"`{k}={v}`" for k, v in r.parameters.items())
-                if r.parameters
-                else None
+                ", ".join(f"`{k}={v}`" for k, v in r.parameters.items()) if r.parameters else None
             )
             cite = r.citation
             head = f"- **[{r.rule_id}]** {r.text}"
@@ -307,9 +307,7 @@ def _render_rule_detail(r: Rule) -> list[str]:
         lines.append(f"**References:** {', '.join(r.references)}")
         lines.append("")
     c = r.citation
-    lines.append(
-        f"**Source:** {c.doc_id} {c.version}, p.{c.page} — _\u201c{c.raw_text}\u201d_"
-    )
+    lines.append(f"**Source:** {c.doc_id} {c.version}, p.{c.page} — _\u201c{c.raw_text}\u201d_")
     lines.append("")
     lines.append("---")
     lines.append("")

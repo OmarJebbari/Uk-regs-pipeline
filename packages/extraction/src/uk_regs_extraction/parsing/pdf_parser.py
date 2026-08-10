@@ -82,9 +82,7 @@ def parse_pdf(
 
                 if rb.get("type", 0) == _IMAGE_BLOCK:
                     # rasterised figure: rasterise the region for the VLM
-                    img_key, img_bytes = _render_block_image(
-                        page, bbox, page_dpi, doc_id, version
-                    )
+                    img_key, img_bytes = _render_block_image(page, bbox, page_dpi, doc_id, version)
                     figure_images[img_key] = img_bytes
                     bid = ulid_like()
                     blocks.append(

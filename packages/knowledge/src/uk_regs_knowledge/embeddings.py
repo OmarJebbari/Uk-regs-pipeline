@@ -79,14 +79,10 @@ class MockEmbedder(Embedder):
             digest = b""
             counter = 0
             while len(digest) < needed:
-                digest += hashlib.sha256(
-                    f"{text}:{counter}".encode()
-                ).digest()
+                digest += hashlib.sha256(f"{text}:{counter}".encode()).digest()
                 counter += 1
 
-            floats = list(
-                struct.unpack(f"<{self._dimension}f", digest[:needed])
-            )
+            floats = list(struct.unpack(f"<{self._dimension}f", digest[:needed]))
             # Normalise to [-1, 1] then L2-normalise.
             vec = [(f / 2.0 - 0.5) * 2.0 for f in floats]
             norm = sum(v * v for v in vec) ** 0.5
@@ -120,9 +116,7 @@ class OpenAIEmbedder(Embedder):
         return self._settings.embedding_dimension
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
-        resp = self._client.embeddings.create(
-            input=list(texts), model=self._model
-        )
+        resp = self._client.embeddings.create(input=list(texts), model=self._model)
         return [d.embedding for d in resp.data]
 
 
@@ -140,8 +134,7 @@ class CohereEmbedder(Embedder):
             import cohere
         except ImportError as exc:  # pragma: no cover
             raise ImportError(
-                "cohere package is required for CohereEmbedder. "
-                "Install with: uv pip install cohere"
+                "cohere package is required for CohereEmbedder. Install with: uv pip install cohere"
             ) from exc
 
         if not self._settings.cohere_api_key:
@@ -192,6 +185,5 @@ def get_embedder(settings: Settings | None = None) -> Embedder:
         return OpenAIEmbedder(settings)
 
     raise ValueError(
-        f"Unknown embedding_provider '{provider}'. "
-        "Must be one of: openai, cohere, mock."
+        f"Unknown embedding_provider '{provider}'. Must be one of: openai, cohere, mock."
     )

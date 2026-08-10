@@ -400,33 +400,35 @@ class RealBackend:
         }
 
     def _diff_from_sql(self, rule_id: str) -> dict | None:
-        """Fallback: read the SQL `supersessions` mirror table."""
+        """Fallback: read the SQL ``supersessions`` mirror table.
+
+        Uses psycopg 3's ``pool.connection()`` context manager, which checks
+        out a connection, commits on a clean exit, rolls back on error, and
+        returns the connection to the pool automatically.
+        """
         from uk_regs_knowledge.relational.connection import get_pool
 
         pool = get_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT old_rule_id, reason FROM supersessions WHERE new_rule_id = %s",
-                    (rule_id,),
-                )
-                row = cur.fetchone()
-            if not row:
-                return None
-            old_id, reason = row
-            prev_rule = self._rules.get_rule_by_id(old_id)
-            if not prev_rule:
-                return {"rule_id": old_id, "reason": reason, "source": "sql"}
-            return {
-                "rule_id": old_id,
-                "reason": reason,
-                "text": prev_rule.text,
-                "parameters": prev_rule.parameters,
-                "source": "sql",
-            }
-        finally:
-            pool.putconn(conn)
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT old_rule_id, reason FROM supersessions WHERE new_rule_id = %s",
+                (rule_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        old_id, reason = row
+        # Fetch the previous rule via the repository (uses its own pooled conn).
+        prev_rule = self._rules.get_rule_by_id(old_id)
+        if not prev_rule:
+            return {"rule_id": old_id, "reason": reason, "source": "sql"}
+        return {
+            "rule_id": old_id,
+            "reason": reason,
+            "text": prev_rule.text,
+            "parameters": prev_rule.parameters,
+            "source": "sql",
+        }
 
 
 # --------------------------------------------------------------------------- #
