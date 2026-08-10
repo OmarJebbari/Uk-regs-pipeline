@@ -14,6 +14,7 @@ silently superseding a rule.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 
 from uk_regs_core import Decision, Rule, RuleDelta
@@ -102,11 +103,8 @@ class Reconciler:
                 result = ReconcileResult(delta=delta, decided_via="fallback", needs_review=True)
             results.append(result)
 
-        logger.info(
-            "reconciled %d rules: %s",
-            len(results),
-            {d.delta.decision.value: 1 for d in results},  # quick counter
-        )
+        counts = Counter(d.delta.decision.value for d in results)
+        logger.info("reconciled %d rules: %s", len(results), dict(counts))
         return results, cs_id
 
     def to_change_set_deltas(self, results: list[ReconcileResult]) -> list[RuleDelta]:

@@ -152,8 +152,16 @@ class Rule(BaseModel):
         description="'deterministic' | 'llm' | 'hybrid'",
     )
 
-    @property
     def is_current(self, now: date | None = None) -> bool:
+        """
+        Whether this rule is legally in force as of ``now`` (default: today).
+
+        This is a *method*, not a property, so callers can pass an explicit
+        reference date for temporal "as-of" queries::
+
+            rule.is_current()                 # today
+            rule.is_current(date(2025, 1, 1)) # as-of a specific date
+        """
         today = now or date.today()
         if self.status != RuleStatus.ACTIVE:
             return False

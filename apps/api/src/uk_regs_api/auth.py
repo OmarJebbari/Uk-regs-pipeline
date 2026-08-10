@@ -10,6 +10,8 @@ This implements **Option 1** from the Phase 4B-3b plan: gate only writes.
 
 from __future__ import annotations
 
+import secrets
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -45,9 +47,14 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return await call_next(request)
 
-        # Mutating request: validate the key
+        # Mutating request: validate the key.
+        # Use ``secrets.compare_digest`` for a *constant-time* comparison to
+        # prevent timing side-channel attacks. A missing key (None) can never
+        # match, but we still compare against a dummy to keep timing uniform.
         provided = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
-        if provided != settings.api_key:
+        expected = settings.api_key
+        ok = provided is not None and secrets.compare_digest(provided, expected)
+        if not ok:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "invalid or missing API key"},

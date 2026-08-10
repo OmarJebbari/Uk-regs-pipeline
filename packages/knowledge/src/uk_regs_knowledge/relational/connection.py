@@ -46,9 +46,6 @@ def get_pool(settings: Settings | None = None) -> Any:
             min_size=2,
             max_size=10,
             kwargs={"application_name": "uk-regs-pipeline"},
-            # Explicit: keep the historical eager-open behaviour. The default
-            # will switch to ``open=False`` (lazy) in a future psycopg-pool.
-            open=True,
         )
     return _pool
 
@@ -75,3 +72,4 @@ def init_schema(settings: Settings | None = None) -> None:
     # rolls back on error, and returns the connection to the pool automatically.
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(schema)
+

@@ -502,6 +502,38 @@ class ChangeSetRepository(BaseRepository):
             cur.execute("SELECT status, count(*) FROM change_sets GROUP BY status ORDER BY status")
             return dict(cur.fetchall())
 
+    def get_by_id(self, change_set_id: str) -> ChangeSet | None:
+        """
+        Fetch a single change-set by id, with all its deltas.
+
+        This is a direct primary-key lookup — far cheaper than the old
+        ``list_changes(limit=1000)`` + linear scan that was used previously.
+        Returns ``None`` if the change-set does not exist.
+        """
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM change_sets WHERE change_set_id = %s",
+                (change_set_id,),
+            )
+            cs_row = cur.fetchone()
+            if cs_row is None:
+                return None
+            cs_cols = [d[0] for d in cur.description]
+            csd = dict(zip(cs_cols, cs_row, strict=False))
+
+            cur.execute(
+                "SELECT * FROM rule_deltas WHERE change_set_id = %s "
+                "ORDER BY decision, new_rule_id",
+                (csd["change_set_id"],),
+            )
+            d_rows = cur.fetchall()
+            d_cols = [d[0] for d in cur.description]
+            deltas: list[RuleDelta] = []
+            for d_row in d_rows:
+                dr = dict(zip(d_cols, d_row, strict=False))
+                deltas.append(self._row_to_delta(dr))
+        return self._row_to_changeset(csd, deltas)
+
     def list_changes(
         self,
         *,

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from functools import lru_cache
 from typing import Literal, Protocol
 
 from uk_regs_core import (
@@ -294,8 +295,7 @@ class RealBackend:
 
     def get_change_set(self, change_set_id: str) -> ChangeSet | None:
         self._ensure()
-        cs_list = self._changes.list_changes(limit=1000)
-        return next((c for c in cs_list if c.change_set_id == change_set_id), None)
+        return self._changes.get_by_id(change_set_id)
 
     def review_change_set(
         self, change_set_id: str, decision: str, reviewer: str, notes: str = ""
@@ -744,7 +744,7 @@ def _rule_to_dict(r: Rule) -> dict:
         "confidence": r.confidence,
         "extraction_method": r.extraction_method,
         "citation": _citation_to_dict(r.citation),
-        "is_current": r.is_current,
+        "is_current": r.is_current(),
     }
 
 
@@ -784,8 +784,13 @@ def changesets_to_dicts(css: Sequence[ChangeSet]) -> list[dict]:
 # --------------------------------------------------------------------------- #
 #  Factory
 # --------------------------------------------------------------------------- #
-def get_backend() -> ContextBackend:
-    """Return a Mock backend unless Postgres is reachable, then Real."""
+def _select_backend() -> ContextBackend:
+    """Pick a backend once: Mock unless Postgres is reachable, then Real.
+
+    This is the underlying implementation; callers should use
+    :func:`get_backend`, which memoises the result for the process lifetime
+    via :func:`functools.lru_cache`.
+    """
     import os
 
     if os.environ.get("UK_REGS_BACKEND", "").lower() == "mock":
@@ -798,3 +803,20 @@ def get_backend() -> ContextBackend:
     except Exception:
         # DB not available -> degrade gracefully to mock
         return MockBackend()
+
+
+@lru_cache(maxsize=1)
+def get_backend() -> ContextBackend:
+    """
+    Process-wide singleton :class:`ContextBackend`.
+
+    Memoised with :func:`functools.lru_cache` so the (potentially expensive)
+    DB-reachability probe in :func:`_select_backend` runs at most once per
+    process. The returned instance is shared across all requests; both
+    ``RealBackend`` and ``MockBackend`` are stateless w.r.t. search reads, and
+    writes go through their own pooled connections, so sharing is safe.
+
+    If the selected backend must be changed at runtime (e.g. for tests),
+    call ``get_backend.cache_clear()``.
+    """
+    return _select_backend()
