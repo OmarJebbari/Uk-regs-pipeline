@@ -5,7 +5,7 @@
 [![Tests: 198](https://img.shields.io/badge/tests-198-brightgreen.svg)](#development)
 [![Evals: 100%](https://img.shields.io/badge/evals-100%25-brightgreen.svg)](#evaluation--quality-gate-phase-4a)
 [![Packages: 8](https://img.shields.io/badge/packages-8-blueviolet.svg)](#monorepo-layout)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-black.svg)](https://docs.astral.sh/ruff/)
 
 > A **versioned, cited, GraphRAG context-intelligence pipeline** for UK Building Regulations.
@@ -832,7 +832,26 @@ the full test suite locally — so a broken commit never reaches CI.
 
 ---
 
-## License & data
+## License
 
-Source code: see `LICENSE`. UK regulation PDFs remain Crown copyright / OGL where applicable;
-**do not commit** copyrighted PDFs to this repo — place them under `data/` (gitignored).
+> ⚠️ **Proprietary & Commercial.** This Software is **not** open-source.
+
+Copyright © 2026 **Omar Jebbari**. All rights reserved.
+
+This Software is the exclusive property of Omar Jebbari. It is licensed, not
+sold. Use, copying, modification, distribution, or sublicensing of this
+Software — in whole or in part — is **strictly prohibited** without a valid,
+paid License obtained directly from Omar Jebbari.
+
+Only individuals or entities who have **purchased or rented** a License may
+use the Software, and only within the terms of that License (number of seats,
+term, and scope). Unauthorized use is a violation of the Licensor's
+intellectual property rights and may result in civil and criminal penalties.
+
+For licensing inquiries, purchases, or to report unauthorized use, contact:
+**Omar Jebbari** — https://github.com/OmarJebbari
+
+The full terms are in [`LICENSE`](LICENSE).
+
+> **Note on data:** UK regulation PDFs remain Crown copyright / OGL where
+> applicable. **Do not commit** copyrighted PDFs to this repo — place them

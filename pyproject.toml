@@ -3,7 +3,9 @@ name = "uk-regs-pipeline"
 version = "0.1.0"
 description = "Temporal GraphRAG pipeline for UK Building Regulations — context intelligence"
 readme = "README.md"
-license = "MIT"
+# Proprietary commercial license — see LICENSE for full terms.
+# Use requires a valid paid License from Omar Jebbari.
+license = "LicenseRef-Proprietary"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 # Root is the aggregate entry-point: depending on every workspace member
