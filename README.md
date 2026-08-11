@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/OmarJebbari/Uk-regs-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OmarJebbari/Uk-regs-pipeline/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Tests: 170](https://img.shields.io/badge/tests-170-brightgreen.svg)](#development)
+[![Tests: 198](https://img.shields.io/badge/tests-198-brightgreen.svg)](#development)
 [![Evals: 100%](https://img.shields.io/badge/evals-100%25-brightgreen.svg)](#evaluation--quality-gate-phase-4a)
 [![Packages: 8](https://img.shields.io/badge/packages-8-blueviolet.svg)](#monorepo-layout)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -53,7 +53,7 @@ This pipeline automates all three.
 | **Extraction** | PyMuPDF, Docling, PaddleOCR/Tesseract, structured LLM outputs (OpenAI / Anthropic / Bedrock) |
 | **Knowledge store** | PostgreSQL + pgvector, Neo4j, MinIO/S3 (immutable originals) |
 | **Serving** | FastAPI (REST + Jinja2/HTMX dashboards), MCP server (stdio) |
-| **Quality** | pytest (170 tests), ruff, golden-set evals (4 suites, 100% gate), DeepEval/RAGAS metrics |
+| **Quality** | pytest (198 tests), ruff, golden-set evals (4 suites, 100% gate), DeepEval/RAGAS metrics |
 | **Observability** | structlog, OpenTelemetry, Langfuse |
 | **CI/CD** | GitHub Actions (lint + test + evals), pre-commit hooks, Dependabot |
 | **Infra** | Docker Compose, Terraform (AWS ECS Fargate) |

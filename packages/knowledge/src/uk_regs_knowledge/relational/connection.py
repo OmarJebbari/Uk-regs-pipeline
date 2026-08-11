@@ -72,4 +72,3 @@ def init_schema(settings: Settings | None = None) -> None:
     # rolls back on error, and returns the connection to the pool automatically.
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(schema)
-

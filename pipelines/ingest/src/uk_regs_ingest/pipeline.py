@@ -195,7 +195,7 @@ class IngestPipeline:
             pages=parsed.pages,
             effective=effective,
         )
-        self._persist_rules(rules, apply=apply)
+        self._persist_rules(rules, apply=apply, threshold=self.settings.confidence_threshold)
 
         # 7. Reconcile against the current corpus
         decisions, review_count, cs_id = self._reconcile_and_persist(
@@ -436,9 +436,15 @@ class IngestPipeline:
         except Exception:
             logger.warning("could not persist document version (continuing)", exc_info=True)
 
-    def _persist_rules(self, rules: list[Rule], *, apply: bool) -> None:
+    def _persist_rules(
+        self, rules: list[Rule], *, apply: bool, threshold: float | None = None
+    ) -> None:
         if not rules:
             return
+        # When applying, only high-confidence rules become ACTIVE. Rules below the
+        # threshold stay PROPOSED so they remain excluded from serving (which
+        # filters `WHERE status = 'active'`) and surface in the review queue.
+        gate = threshold if threshold is not None else 0.0
         try:
             repo = RuleRepository()
             embeddings: list[list[float]] | None = None
@@ -451,8 +457,18 @@ class IngestPipeline:
                     )
                     embeddings = None
             for i, rule in enumerate(rules):
-                if apply:
+                if apply and rule.confidence >= gate:
                     rule = rule.model_copy(update={"status": RuleStatus.ACTIVE})
+                elif apply:
+                    # Explicitly force PROPOSED — defense-in-depth: even if a rule
+                    # somehow arrives ACTIVE, low confidence must never be served.
+                    logger.info(
+                        "keeping rule %s as PROPOSED (confidence %.3f < threshold %.3f)",
+                        rule.rule_id,
+                        rule.confidence,
+                        gate,
+                    )
+                    rule = rule.model_copy(update={"status": RuleStatus.PROPOSED})
                 emb = embeddings[i] if embeddings else None
                 repo.upsert_rule(rule, embedding=emb)
         except Exception:

@@ -579,8 +579,10 @@ class MockBackend:
     def search(self, query: str, top_k: int = 10, mode: SearchMode = "hybrid") -> list[RuleHit]:
         # Mock has no vector index; keyword scoring is the only leg available.
         # We accept `mode` for Protocol conformance but always rank by keywords.
-        scored = [(r, self._score(query, r)) for r in self._rules]
-        scored = [(r, s) for r, s in scored if s > 0] or [(r, 0.0) for r in self._rules[:top_k]]
+        # Match the SQL backend: only ACTIVE rules are searchable/served.
+        active = [r for r in self._rules if r.status == RuleStatus.ACTIVE]
+        scored = [(r, self._score(query, r)) for r in active]
+        scored = [(r, s) for r, s in scored if s > 0] or [(r, 0.0) for r in active[:top_k]]
         scored.sort(key=lambda rs: rs[1], reverse=True)
         return [RuleHit(r, s) for r, s in scored[:top_k]]
 
@@ -588,7 +590,8 @@ class MockBackend:
         return next((r for r in self._rules if r.rule_id == rule_id), None)
 
     def get_current(self, topic: str | None = None, category: str | None = None) -> list[Rule]:
-        rules = self._rules
+        # Match the SQL backend: only ACTIVE rules are "current".
+        rules = [r for r in self._rules if r.status == RuleStatus.ACTIVE]
         if category:
             rules = [r for r in rules if r.category.value == category]
         if topic:

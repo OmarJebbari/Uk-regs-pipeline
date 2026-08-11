@@ -522,8 +522,7 @@ class ChangeSetRepository(BaseRepository):
             csd = dict(zip(cs_cols, cs_row, strict=False))
 
             cur.execute(
-                "SELECT * FROM rule_deltas WHERE change_set_id = %s "
-                "ORDER BY decision, new_rule_id",
+                "SELECT * FROM rule_deltas WHERE change_set_id = %s ORDER BY decision, new_rule_id",
                 (csd["change_set_id"],),
             )
             d_rows = cur.fetchall()
