@@ -278,6 +278,7 @@ how many need review, and the `change_set_id`.
 uv run uk-regs-ingest --help
 uv run uk-regs-ingest ingest data/sample.pdf --title "Approved Document B" --version 2026-ed1 --skip-llm
 uv run uk-regs-ingest batch data/pdfs/ --version 2026-ed1 --skip-llm
+uv run uk-regs-ingest reembed          # backfill embeddings for rules stored without vectors
 ```
 
 ### 5. Serve context to your IDE
@@ -528,6 +529,7 @@ monitor.
 | **Rules by Category** | fire-safety / structural / accessibility / etc. |
 | **Documents / Versions** | document manifest + version counts |
 | **Review Queue** | change-sets by status + pending-review count |
+| **Missing Embeddings** | active rules with no vector (invisible to semantic search) — backfill with `uk-regs-ingest reembed` |
 | **Sources** | monitored sources (total / enabled) |
 
 The JSON endpoint (`/ops/stats`) returns the same data for external

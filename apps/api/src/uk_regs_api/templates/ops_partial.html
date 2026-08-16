@@ -22,6 +22,10 @@
         <div class="num">{{ stats.pending_review }}</div>
         <div class="label">Pending Review</div>
     </div>
+    <div class="ops-tile {% if stats.rules_missing_embeddings > 0 %}danger{% else %}success{% endif %}">
+        <div class="num">{{ stats.rules_missing_embeddings }}</div>
+        <div class="label">Missing Embeddings</div>
+    </div>
     <div class="ops-tile {% if stats.sources_enabled == stats.sources_count and stats.sources_count > 0 %}success{% else %}danger{% endif %}">
         <div class="num">{{ stats.sources_enabled }}/{{ stats.sources_count }}</div>
         <div class="label">Sources Healthy</div>
