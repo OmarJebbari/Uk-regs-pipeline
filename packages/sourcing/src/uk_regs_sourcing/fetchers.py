@@ -13,11 +13,13 @@ portal, NHBC, local test fixtures…) and keeps the monitor pure & testable.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import socket
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from uk_regs_core.ids import sha256_of
 
@@ -113,6 +115,51 @@ class LocalFetcher(BaseFetcher):
 
 
 # --------------------------------------------------------------------------- #
+#  SSRF guard — the http fetcher only talks to public, http(s) hosts
+# --------------------------------------------------------------------------- #
+class UnsafeUrlError(ValueError):
+    """A source/manifest URL pointed somewhere the fetcher must not go."""
+
+
+def _resolve_host(host: str) -> list[str]:
+    """Resolve a hostname to its IP addresses. Isolated so tests can monkeypatch."""
+    infos = socket.getaddrinfo(host, None)
+    return [sockaddr[0] for *_head, sockaddr in infos]
+
+
+def _validate_public_url(url: str, *, allow_private: bool) -> None:
+    """
+    Raise ``UnsafeUrlError`` unless ``url`` is an http(s) URL on a public host.
+
+    Blocks non-http schemes (``file://``, ``ftp://``, …), loopback, RFC1918,
+    link-local (incl. the ``169.254.169.254`` cloud-metadata endpoint),
+    unique-local IPv6, unspecified and unresolved hosts. Called for the
+    initial request URL **and for every redirect hop**.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise UnsafeUrlError(f"scheme {parsed.scheme!r} not allowed for source fetch")
+    host = parsed.hostname
+    if not host:
+        raise UnsafeUrlError("URL has no host")
+    if allow_private:
+        return
+    # Literal IPs are checked directly; names are resolved and *every*
+    # address must be public — a host with mixed public/private A/AAAA
+    # records is refused.
+    try:
+        candidates = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            candidates = [ipaddress.ip_address(ip) for ip in _resolve_host(host)]
+        except socket.gaierror as exc:
+            raise UnsafeUrlError(f"cannot resolve source host {host!r}") from exc
+    for ip in candidates:
+        if not ip.is_global:
+            raise UnsafeUrlError(f"source host {host!r} resolves to non-public IP {ip}")
+
+
+# --------------------------------------------------------------------------- #
 #  HTTP fetcher — pulls from a JSON manifest or an HTML directory listing
 # --------------------------------------------------------------------------- #
 class HttpFetcher(BaseFetcher):
@@ -160,12 +207,30 @@ class HttpFetcher(BaseFetcher):
 
     # ---- internals ------------------------------------------------------ #
     def _http_get(self, url: str, *, accept: str) -> _Response:
-        """Thin wrapper so tests can monkeypatch this without httpx."""
-        import httpx
+        """
+        Thin wrapper so tests can monkeypatch this without httpx.
 
-        resp = httpx.get(url, headers={"Accept": accept}, follow_redirects=True, timeout=60.0)
-        resp.raise_for_status()
-        return _Response(content=resp.content, headers=dict(resp.headers))
+        SSRF-hardened: the URL — and every redirect hop — is validated by
+        ``_validate_public_url`` *before* a connection is made.
+        """
+        import httpx
+        from uk_regs_core import get_settings
+
+        allow_private = get_settings().sourcing_allow_private_hosts
+        _validate_public_url(url, allow_private=allow_private)
+
+        max_redirects = 5
+        with httpx.Client(follow_redirects=False, timeout=60.0) as client:
+            for _ in range(max_redirects + 1):
+                resp = client.get(url, headers={"Accept": accept})
+                if resp.is_redirect:
+                    location = resp.headers.get("location", "")
+                    url = urljoin(str(resp.url), location)
+                    _validate_public_url(url, allow_private=allow_private)
+                    continue
+                resp.raise_for_status()
+                return _Response(content=resp.content, headers=dict(resp.headers))
+        raise UnsafeUrlError(f"too many redirects fetching {self.entry.url}")
 
     def _parse_manifest(self, body: bytes) -> list[SourceState]:
         import json
@@ -193,7 +258,6 @@ class HttpFetcher(BaseFetcher):
     def _scrape_html(self, body: bytes, *, base: str) -> list[SourceState]:
         """Best-effort scrape of an HTML directory listing for *.pdf links."""
         import re
-        from urllib.parse import urljoin
 
         html = body.decode("utf-8", errors="replace")
         hrefs = re.findall(r'href="([^"]+\.pdf)"', html, flags=re.IGNORECASE)

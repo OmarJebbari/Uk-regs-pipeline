@@ -24,8 +24,11 @@ import pytest
 os.environ.setdefault("UK_REGS_BACKEND", "mock")
 
 from uk_regs_sourcing.fetchers import (  # noqa: E402
+    HttpFetcher,
     LocalFetcher,
     MockFetcher,
+    UnsafeUrlError,
+    _validate_public_url,
     make_fetcher,
 )
 from uk_regs_sourcing.models import (  # noqa: E402
@@ -173,6 +176,117 @@ class TestFetcherFactory:
     def test_unknown_fetcher_raises(self):
         with pytest.raises(ValueError, match="unknown fetcher"):
             make_fetcher(_entry(fetcher="nonexistent"))
+
+
+# =========================================================================== #
+#  SSRF guard — HttpFetcher only talks to public http(s) hosts
+# =========================================================================== #
+class TestSsrfGuard:
+    def test_loopback_ip_rejected(self):
+        with pytest.raises(UnsafeUrlError, match="non-public"):
+            _validate_public_url("http://127.0.0.1:8000/doc.pdf", allow_private=False)
+
+    def test_rfc1918_rejected(self):
+        for host in ("10.0.0.5", "192.168.1.1", "172.16.0.9"):
+            with pytest.raises(UnsafeUrlError, match="non-public"):
+                _validate_public_url(f"http://{host}/doc.pdf", allow_private=False)
+
+    def test_cloud_metadata_endpoint_rejected(self):
+        with pytest.raises(UnsafeUrlError, match="non-public"):
+            _validate_public_url(
+                "http://169.254.169.254/latest/meta-data/iam/", allow_private=False
+            )
+
+    def test_file_scheme_rejected(self):
+        with pytest.raises(UnsafeUrlError, match="scheme"):
+            _validate_public_url("file:///etc/passwd", allow_private=False)
+
+    def test_ipv6_loopback_rejected(self):
+        with pytest.raises(UnsafeUrlError, match="non-public"):
+            _validate_public_url("http://[::1]/doc.pdf", allow_private=False)
+
+    def test_hostname_resolving_private_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            "uk_regs_sourcing.fetchers._resolve_host", lambda host: ["10.1.2.3"]
+        )
+        with pytest.raises(UnsafeUrlError, match="non-public"):
+            _validate_public_url("http://internal.local/doc.pdf", allow_private=False)
+
+    def test_mixed_public_private_records_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            "uk_regs_sourcing.fetchers._resolve_host",
+            lambda host: ["93.184.216.34", "10.0.0.1"],
+        )
+        with pytest.raises(UnsafeUrlError, match="non-public"):
+            _validate_public_url("http://mixed.example/doc.pdf", allow_private=False)
+
+    def test_public_literal_ip_allowed(self):
+        _validate_public_url("https://93.184.216.34/doc.pdf", allow_private=False)  # no raise
+
+    def test_allow_private_bypass(self):
+        _validate_public_url("http://127.0.0.1:8000/doc.pdf", allow_private=True)  # no raise
+
+
+class _FakeResp:
+    def __init__(self, url: str, location: str | None = None):
+        self.url = url
+        self.headers = {"location": location} if location else {}
+        self.content = b"%PDF-1.4 fake"
+
+    @property
+    def is_redirect(self) -> bool:
+        return "location" in self.headers
+
+    def raise_for_status(self) -> None:
+        pass
+
+
+class _FakeClient:
+    """Stands in for httpx.Client — scripted responses, no network."""
+
+    responses: list[_FakeResp] = []
+
+    def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get(self, url, headers=None):  # noqa: ANN001
+        return type(self).responses.pop(0)
+
+
+class TestSsrfRedirectValidation:
+    def test_redirect_to_metadata_endpoint_blocked(self, monkeypatch):
+        # Initial host looks public (resolve to a public IP)…
+        monkeypatch.setattr(
+            "uk_regs_sourcing.fetchers._resolve_host", lambda host: ["93.184.216.34"]
+        )
+        # …but the response redirects to the cloud metadata endpoint.
+        _FakeClient.responses = [
+            _FakeResp("https://pub.example/doc.pdf", location="http://169.254.169.254/creds"),
+        ]
+        monkeypatch.setattr("httpx.Client", _FakeClient)
+
+        fetcher = HttpFetcher(_entry(fetcher="http", url="https://pub.example/doc.pdf"))
+        with pytest.raises(UnsafeUrlError, match="non-public"):
+            fetcher._http_get("https://pub.example/doc.pdf", accept="application/pdf")
+
+    def test_redirect_loop_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            "uk_regs_sourcing.fetchers._resolve_host", lambda host: ["93.184.216.34"]
+        )
+        _FakeClient.responses = [
+            _FakeResp("https://pub.example/a", location="https://pub.example/b")
+        ] * 10
+        monkeypatch.setattr("httpx.Client", _FakeClient)
+
+        fetcher = HttpFetcher(_entry(fetcher="http", url="https://pub.example/a"))
+        with pytest.raises(UnsafeUrlError, match="too many redirects"):
+            fetcher._http_get("https://pub.example/a", accept="application/pdf")
 
 
 # =========================================================================== #

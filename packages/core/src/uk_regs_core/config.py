@@ -127,6 +127,17 @@ class Settings(BaseSettings):
     # Maximum query length (chars) accepted by /search to prevent abuse.
     search_max_query_chars: int = Field(default=2000, ge=10, le=10_000)
 
+    # ---- Source monitoring (SSRF guard) ----
+    # HttpFetcher refuses http(s) URLs whose host resolves to a non-public IP
+    # (loopback, RFC1918, link-local incl. cloud metadata endpoints) and
+    # re-validates every redirect hop. Enable ONLY for local testing against
+    # a private mock server.
+    sourcing_allow_private_hosts: bool = Field(
+        default=False,
+        description="Allow the http source fetcher to reach private/loopback "
+        "hosts (local testing only).",
+    )
+
     # ---- Logging (structlog) ----
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["json", "console"] = "console"
