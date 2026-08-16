@@ -13,6 +13,9 @@ uk-regs-ingest ingest path/to/adb-2026.pdf \
 
 # Apply the change-set (set rules ACTIVE). Use after review:
 uk-regs-ingest ingest ... --apply
+
+# Backfill embeddings skipped during a --skip-embed run:
+uk-regs-ingest reembed [--dry-run] [--batch-size 64]
 """
 
 from __future__ import annotations
@@ -187,6 +190,77 @@ def batch(
             logging.getLogger(__name__).exception("batch ingest failed for %s", pdf)
 
     _print_batch_summary(results)
+
+
+@cli.command()
+@click.option("--batch-size", default=64, show_default=True, help="Texts per embed API call")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Only report how many rules are missing vectors; change nothing",
+)
+def reembed(batch_size: int, dry_run: bool) -> None:
+    """Backfill embeddings for rules persisted without vectors.
+
+    Rules can be stored without vectors when ingest ran with --skip-embed,
+    no embedder was configured, or the embedding API failed mid-run. Those
+    rules are invisible to semantic search until backfilled — this command
+    embeds them using the same text (normalized_form) the pipeline uses,
+    so backfilled vectors match ingest-time vectors.
+    """
+    from uk_regs_knowledge.repositories.relational_repo import RuleRepository
+
+    repo = RuleRepository()
+    missing = repo.count_missing_embeddings()
+    if missing == 0:
+        console.print("[green]✓[/green] All rules already have embeddings — nothing to do.")
+        return
+    if dry_run:
+        console.print(f"[cyan]{missing}[/cyan] rules missing embeddings (dry run, no changes).")
+        return
+
+    try:
+        embedder = get_embedder(get_settings())
+    except Exception as e:
+        console.print(f"[red]Embedder unavailable ({e}); cannot backfill.[/red]")
+        sys.exit(1)
+
+    console.print(f"[cyan]{missing}[/cyan] rules to embed (batch size {batch_size})…")
+    done = failed = 0
+    batch_ids: list[str] = []
+    batch_texts: list[str] = []
+
+    def _flush() -> None:
+        nonlocal done, failed, batch_ids, batch_texts
+        if not batch_ids:
+            return
+        try:
+            vectors = embedder.embed_texts(batch_texts)
+            for rid, vec in zip(batch_ids, vectors, strict=False):
+                repo.update_embedding(rid, vec)
+            done += len(batch_ids)
+            console.print(f"  [green]✓[/green] embedded {len(batch_ids)} ({done}/{missing})")
+        except Exception:
+            failed += len(batch_ids)
+            logging.getLogger(__name__).exception(
+                "reembed batch failed (%s rules)", len(batch_ids)
+            )
+        batch_ids, batch_texts = [], []
+
+    for rule_id, normalized_form in repo.iter_missing_embeddings(batch_size=batch_size):
+        batch_ids.append(rule_id)
+        batch_texts.append(normalized_form or "")
+        if len(batch_ids) >= batch_size:
+            _flush()
+    _flush()
+
+    if failed:
+        console.print(
+            f"[yellow]Done: {done} embedded, [red]{failed} failed[/red]. "
+            "Re-run to retry failures.[/yellow]"
+        )
+        sys.exit(1)
+    console.print(f"[green]✓[/green] Backfilled {done} embeddings.")
 
 
 # --------------------------------------------------------------------------- #

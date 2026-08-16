@@ -26,6 +26,7 @@ class PipelineStats(BaseModel):
     total_rules: int = 0
     rules_by_status: dict[str, int] = Field(default_factory=dict)
     rules_by_category: dict[str, int] = Field(default_factory=dict)
+    rules_missing_embeddings: int = 0
 
     # --- documents ---
     documents: int = 0

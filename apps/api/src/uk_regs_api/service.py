@@ -316,11 +316,16 @@ class RealBackend:
             documents, versions = 0, 0
 
         rules_by_status = self._rules.count_by_status()
+        try:
+            missing_embeddings = self._rules.count_missing_embeddings()
+        except Exception:
+            missing_embeddings = 0
         return PipelineStats(
             active_rules=rules_by_status.get("active", 0),
             total_rules=self._rules.total_count(),
             rules_by_status=rules_by_status,
             rules_by_category=self._rules.count_by_category(),
+            rules_missing_embeddings=missing_embeddings,
             documents=documents,
             document_versions=versions,
             change_sets_by_status=self._changes.count_by_status(),
@@ -649,6 +654,7 @@ class MockBackend:
             total_rules=len(self._rules),
             rules_by_status=rules_by_status,
             rules_by_category=rules_by_category,
+            rules_missing_embeddings=0,
             documents=3,
             document_versions=3,
             change_sets_by_status=cs_by_status,
