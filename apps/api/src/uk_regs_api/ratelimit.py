@@ -21,12 +21,17 @@ def get_remote_addr(request) -> str:
     """
     Resolve the client IP for rate-limit keying.
 
-    Honours ``X-Forwarded-For`` (first hop) so limits work correctly
-    behind a load balancer / ingress. Falls back to the direct peer.
+    Honours ``X-Forwarded-For`` (first hop) **only when ``TRUST_PROXY`` is
+    enabled** — the header is client-spoofable, so trusting it blindly lets
+    any caller rotate fake IPs and bypass per-IP limits. Enable it only when
+    the app runs behind a reverse proxy / load balancer that overwrites the
+    header. Falls back to the direct peer address otherwise.
     """
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    settings = get_settings()
+    if settings.trust_proxy:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -44,12 +49,11 @@ def get_limiter():
 
     try:
         from slowapi import Limiter
-        from slowapi.util import get_remote_addr as _slowapi_remote
     except ImportError:
         return None  # slowapi not installed — rate limiting disabled
 
     settings = get_settings()
-    _limiter = Limiter(key_func=_slowapi_remote, default_limits=[settings.ratelimit_global])
+    _limiter = Limiter(key_func=get_remote_addr, default_limits=[settings.ratelimit_global])
     return _limiter
 
 

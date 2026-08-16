@@ -1,4 +1,4 @@
-"""Tests for rate-limit config + search query validation (§8)."""
+"""Tests for rate-limit config + search query validation."""
 
 import pytest
 from uk_regs_api.ratelimit import validate_search_query
@@ -44,3 +44,48 @@ class TestRateLimitConfig:
         assert "minute" in settings.ratelimit_search
         assert "minute" in settings.ratelimit_mutate
         assert settings.search_max_query_chars > 0
+
+
+class _FakeClient:
+    def __init__(self, host: str):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, headers: dict[str, str], host: str = "203.0.113.7"):
+        self.headers = {k.lower(): v for k, v in headers.items()}
+        self.client = _FakeClient(host)
+
+
+class TestClientIpResolution:
+    """get_remote_addr must only honour X-Forwarded-For when TRUST_PROXY is on."""
+
+    def test_xff_ignored_by_default(self, monkeypatch):
+        from uk_regs_api.ratelimit import get_remote_addr
+        from uk_regs_core import get_settings
+
+        monkeypatch.setattr(
+            type(get_settings()), "trust_proxy", property(lambda self: False)
+        )
+        req = _FakeRequest({"X-Forwarded-For": "1.2.3.4, 5.6.7.8"})
+        assert get_remote_addr(req) == "203.0.113.7"
+
+    def test_xff_used_when_trust_proxy_enabled(self, monkeypatch):
+        from uk_regs_api.ratelimit import get_remote_addr
+        from uk_regs_core import get_settings
+
+        monkeypatch.setattr(
+            type(get_settings()), "trust_proxy", property(lambda self: True)
+        )
+        req = _FakeRequest({"X-Forwarded-For": "1.2.3.4, 5.6.7.8"})
+        assert get_remote_addr(req) == "1.2.3.4"
+
+    def test_falls_back_to_peer_without_header(self, monkeypatch):
+        from uk_regs_api.ratelimit import get_remote_addr
+        from uk_regs_core import get_settings
+
+        monkeypatch.setattr(
+            type(get_settings()), "trust_proxy", property(lambda self: True)
+        )
+        req = _FakeRequest({}, host="198.51.100.9")
+        assert get_remote_addr(req) == "198.51.100.9"

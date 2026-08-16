@@ -101,6 +101,14 @@ class Settings(BaseSettings):
 
     # ---- Rate limiting (slowapi) ----
     # Format: "<count> per <unit>" e.g. "60/minute". Set to empty to disable.
+    # Only set TRUST_PROXY=true when the app runs behind a trusted reverse
+    # proxy / load balancer that overwrites X-Forwarded-For. Otherwise a
+    # spoofable client IP would let attackers bypass per-IP limits.
+    trust_proxy: bool = Field(
+        default=False,
+        description="Honour X-Forwarded-For for rate-limit keying. Only enable "
+        "behind a trusted proxy that overwrites the header.",
+    )
     ratelimit_global: str = Field(
         default="200/minute",
         description="Global per-IP rate limit applied to all API routes.",
