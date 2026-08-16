@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     app_name: str = "uk-regs-pipeline"
     env: Literal["dev", "staging", "prod"] = "dev"
     debug: bool = False
+    # Interactive docs (Swagger/ReDoc/OpenAPI) are served in dev by default.
+    # In staging/prod set DOCS_ENABLED=true to expose them explicitly.
+    docs_enabled: bool = False
 
     # ---- Postgres + pgvector ----
     postgres_host: str = "localhost"

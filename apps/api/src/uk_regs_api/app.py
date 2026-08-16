@@ -44,6 +44,8 @@ from uk_regs_export.renderers import (
     render_json,
 )
 
+from uk_regs_core import get_settings
+
 from uk_regs_api.auth import ApiKeyMiddleware
 from uk_regs_api.observability import setup_observability
 from uk_regs_api.ratelimit import get_limiter, setup_rate_limiting, validate_search_query
@@ -55,6 +57,12 @@ from uk_regs_api.service import (
     rules_to_dicts,
 )
 
+# Interactive API docs (Swagger UI / ReDoc / OpenAPI schema) expose the full
+# attack surface of a production deployment. Disable them outside dev unless
+# explicitly enabled via DOCS_ENABLED=true.
+_settings = get_settings()
+_docs_enabled = _settings.env == "dev" or _settings.docs_enabled
+
 app = FastAPI(
     title="UK Regs Context API",
     description=(
@@ -62,6 +70,9 @@ app = FastAPI(
         "building regulations. Every response carries citations."
     ),
     version="0.5.0",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 # Wire observability (logging, tracing, request-id middleware) + auth + rate limits.

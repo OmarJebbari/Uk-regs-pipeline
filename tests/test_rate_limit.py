@@ -64,9 +64,7 @@ class TestClientIpResolution:
         from uk_regs_api.ratelimit import get_remote_addr
         from uk_regs_core import get_settings
 
-        monkeypatch.setattr(
-            type(get_settings()), "trust_proxy", property(lambda self: False)
-        )
+        monkeypatch.setattr(get_settings(), "trust_proxy", False)
         req = _FakeRequest({"X-Forwarded-For": "1.2.3.4, 5.6.7.8"})
         assert get_remote_addr(req) == "203.0.113.7"
 
@@ -74,9 +72,7 @@ class TestClientIpResolution:
         from uk_regs_api.ratelimit import get_remote_addr
         from uk_regs_core import get_settings
 
-        monkeypatch.setattr(
-            type(get_settings()), "trust_proxy", property(lambda self: True)
-        )
+        monkeypatch.setattr(get_settings(), "trust_proxy", True)
         req = _FakeRequest({"X-Forwarded-For": "1.2.3.4, 5.6.7.8"})
         assert get_remote_addr(req) == "1.2.3.4"
 
@@ -84,8 +80,6 @@ class TestClientIpResolution:
         from uk_regs_api.ratelimit import get_remote_addr
         from uk_regs_core import get_settings
 
-        monkeypatch.setattr(
-            type(get_settings()), "trust_proxy", property(lambda self: True)
-        )
+        monkeypatch.setattr(get_settings(), "trust_proxy", True)
         req = _FakeRequest({}, host="198.51.100.9")
         assert get_remote_addr(req) == "198.51.100.9"
