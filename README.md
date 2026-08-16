@@ -728,6 +728,11 @@ the full lint + test + evals suite against the in-memory mock backend (no Docker
 no API key required), and uploads the eval report as a build artifact. Check the
 badge at the top of this README for the live status.
 
+**Supply-chain hardening:** the workflow runs with a least-privilege token
+(`permissions: contents: read`) and every third-party action is pinned to an
+immutable commit SHA (with the tag noted in a comment), so a hijacked tag can't
+silently change what CI executes.
+
 ---
 
 ## Configuration
