@@ -731,7 +731,9 @@ badge at the top of this README for the live status.
 **Supply-chain hardening:** the workflow runs with a least-privilege token
 (`permissions: contents: read`) and every third-party action is pinned to an
 immutable commit SHA (with the tag noted in a comment), so a hijacked tag can't
-silently change what CI executes.
+silently change what CI executes. A `uv audit` step also scans the locked
+dependency set (`uv.lock`) for known CVEs on every run, so vulnerable
+dependencies fail the build before merge.
 
 ---
 
