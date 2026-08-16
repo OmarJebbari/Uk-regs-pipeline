@@ -82,6 +82,8 @@ class IngestResult:
     needs_review: int = 0
     change_set_id: str | None = None
     applied: bool = False
+    rules_persisted: int = 0
+    reconcile_skipped: bool = False
 
     def summary(self) -> str:
         lines = [
@@ -91,10 +93,12 @@ class IngestResult:
             f"blocks            : {self.blocks}",
             f"figures           : {self.figures}",
             f"rules extracted   : {self.rules_extracted}",
+            f"rules persisted   : {self.rules_persisted}",
             f"decisions         : {self.decisions or '—'}",
             f"needs review      : {self.needs_review}",
             f"change_set_id     : {self.change_set_id}",
             f"applied           : {self.applied}",
+            f"reconcile skipped : {self.reconcile_skipped}",
         ]
         return "\n".join(lines)
 
@@ -195,10 +199,20 @@ class IngestPipeline:
             pages=parsed.pages,
             effective=effective,
         )
-        self._persist_rules(rules, apply=apply, threshold=self.settings.confidence_threshold)
+        persisted = self._persist_rules(
+            rules, apply=apply, threshold=self.settings.confidence_threshold
+        )
+        # Fail loud: extracted rules that never reached the store mean this run
+        # silently produced a "successful" result with an empty corpus update.
+        if rules and persisted == 0:
+            logger.error(
+                "INGEST INCOMPLETE: %d rules extracted but NONE persisted "
+                "(store write failed) — the corpus was NOT updated",
+                len(rules),
+            )
 
         # 7. Reconcile against the current corpus
-        decisions, review_count, cs_id = self._reconcile_and_persist(
+        decisions, review_count, cs_id, reconcile_skipped = self._reconcile_and_persist(
             rules, doc_id, version, apply=apply
         )
 
@@ -222,10 +236,12 @@ class IngestPipeline:
             blocks=len(parsed.blocks),
             figures=len(figures),
             rules_extracted=len(rules),
+            rules_persisted=persisted,
             decisions=decisions,
             needs_review=review_count,
             change_set_id=cs_id,
             applied=apply,
+            reconcile_skipped=reconcile_skipped,
         )
 
     def _dump_json(
@@ -438,13 +454,15 @@ class IngestPipeline:
 
     def _persist_rules(
         self, rules: list[Rule], *, apply: bool, threshold: float | None = None
-    ) -> None:
+    ) -> int:
+        """Persist rules; returns how many were actually written to the store."""
         if not rules:
-            return
+            return 0
         # When applying, only high-confidence rules become ACTIVE. Rules below the
         # threshold stay PROPOSED so they remain excluded from serving (which
         # filters `WHERE status = 'active'`) and surface in the review queue.
         gate = threshold if threshold is not None else 0.0
+        persisted = 0
         try:
             repo = RuleRepository()
             embeddings: list[list[float]] | None = None
@@ -471,19 +489,25 @@ class IngestPipeline:
                     rule = rule.model_copy(update={"status": RuleStatus.PROPOSED})
                 emb = embeddings[i] if embeddings else None
                 repo.upsert_rule(rule, embedding=emb)
+                persisted += 1
         except Exception:
-            logger.warning("could not persist rules (continuing)", exc_info=True)
+            logger.error("could not persist rules (continuing)", exc_info=True)
+        return persisted
 
     def _reconcile_and_persist(
         self, rules: list[Rule], doc_id: str, version: str, *, apply: bool
-    ) -> tuple[dict[str, int], int, str | None]:
+    ) -> tuple[dict[str, int], int, str | None, bool]:
         if not rules:
-            return {}, 0, None
+            return {}, 0, None, False
         try:
             corpus = RuleRepository().get_current_rules()
         except Exception:
-            logger.warning("could not load corpus; reconciliation skipped", exc_info=True)
-            return {}, 0, None
+            logger.error(
+                "could not load corpus; reconciliation SKIPPED — supersession "
+                "edges were NOT computed for this run",
+                exc_info=True,
+            )
+            return {}, 0, None, True
 
         reconciler = self.reconciler or Reconciler(llm=self.llm)
         results, cs_id = reconciler.reconcile(rules, corpus, doc_id=doc_id)
@@ -507,9 +531,9 @@ class IngestPipeline:
         try:
             ChangeSetRepository().save(cs)
         except Exception:
-            logger.warning("could not persist change-set (continuing)", exc_info=True)
+            logger.error("could not persist change-set (continuing)", exc_info=True)
 
-        return decisions, review_count, cs_id
+        return decisions, review_count, cs_id, False
 
 
 # --------------------------------------------------------------------------- #
