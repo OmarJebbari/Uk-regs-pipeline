@@ -661,6 +661,10 @@ make image-push  SVC=api REG=ghcr.io/your-org
 
 ### Production notes
 
+- **Dev data-plane hardening:** all data-plane ports in `docker-compose.yml`
+  are bound to `127.0.0.1` (loopback only), so the dev credentials for
+  Postgres / Neo4j / MinIO are never reachable from the LAN — and the MinIO
+  images are pinned to immutable release tags instead of `:latest`.
 - The API image runs as non-root, so bind to ports ≥ 1024 (port 8000 by default).
 - Structured JSON logging is enabled in the container (`LOG_FORMAT=json`).
 - For IDE integration with the MCP image, point your IDE at the running
