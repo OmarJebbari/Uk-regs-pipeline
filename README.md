@@ -755,6 +755,9 @@ All config is 12-factor via `.env` (see `.env.example`), parsed by
 | `RECONCILIATION_TOP_K` | `5` | Candidates per new rule during matching |
 | `UK_REGS_BACKEND` | `auto` | Backend for API + evals: `auto` (Postgres if up, else mock) / `mock` / `postgres` |
 | `API_KEY` | *(unset)* | If set, mutating routes require `X-API-Key` header. Unset = open dev mode. |
+| `ENV` | `dev` | `dev` / `staging` / `prod`. Non-dev disables interactive docs unless `DOCS_ENABLED=true`. |
+| `DOCS_ENABLED` | `false` | Serve Swagger/ReDoc/OpenAPI outside dev (e.g. internal staging). |
+| `TRUST_PROXY` | `false` | Honour `X-Forwarded-For` for rate-limit keys. Only enable behind a trusted reverse proxy that overwrites the header. |
 | `LOG_FORMAT` | `console` | `json` (prod) or `console` (dev, colored) via structlog |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | OTLP collector URL. Unset = tracing disabled. |
 | `LANGFUSE_PUBLIC_KEY` | *(unset)* | Langfuse LLM tracing. Unset = disabled. |
