@@ -21,7 +21,8 @@ services:
       POSTGRES_PASSWORD: ukregs
       POSTGRES_DB: ukregs
     ports:
-      - "5432:5432"
+      # Bind to loopback only — dev credentials must not be reachable from the LAN.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -38,8 +39,9 @@ services:
       NEO4J_AUTH: neo4j/password
       NEO4J_PLUGINS: '["apoc"]'
     ports:
-      - "7474:7474"   # browser UI
-      - "7687:7687"   # bolt
+      # Bind to loopback only — dev credentials must not be reachable from the LAN.
+      - "127.0.0.1:7474:7474"   # browser UI
+      - "127.0.0.1:7687:7687"   # bolt
     volumes:
       - neo4j_data:/data
     healthcheck:
@@ -50,15 +52,17 @@ services:
 
   # ---- MinIO (S3-compatible object storage) -----------------------------
   minio:
-    image: minio/minio:latest
+    # Pinned release tag (was :latest) — immutable, reproducible dev stack.
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: ukregs-minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # web console
+      # Bind to loopback only — dev credentials must not be reachable from the LAN.
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # web console
     volumes:
       - minio_data:/data
     healthcheck:
@@ -69,7 +73,8 @@ services:
 
   # ---- One-shot bucket provisioner --------------------------------------
   minio-init:
-    image: minio/mc:latest
+    # Pinned release tag (was :latest).
+    image: minio/mc:RELEASE.2025-04-08T15-39-56Z
     container_name: ukregs-minio-init
     depends_on:
       minio:
