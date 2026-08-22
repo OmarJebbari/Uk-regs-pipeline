@@ -17,6 +17,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.45b0",
     "langfuse>=2.0",
     "slowapi>=0.1.9",
+    "prometheus-client>=0.20",
 ]
 
 [build-system]

@@ -18,7 +18,7 @@ from starlette.responses import JSONResponse
 from uk_regs_core import get_settings
 
 # Routes exempt from auth even when API_KEY is set
-_OPEN_PREFIXES = ("/health", "/healthz", "/readyz", "/docs", "/openapi", "/redoc")
+_OPEN_PREFIXES = ("/health", "/healthz", "/readyz", "/metrics", "/docs", "/openapi", "/redoc")
 
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):

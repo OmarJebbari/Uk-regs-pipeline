@@ -363,6 +363,23 @@ make api-otel   # start the API with OTel traces → your collector
 
 ---
 
+**Prometheus metrics** — the API always exposes `GET /metrics` (no extra
+setup, exempt from API-key gating but should sit behind your ingress /
+security-group so only Prometheus can scrape it):
+
+- `uk_regs_api_requests_total{method,route,status}` — request counter
+- `uk_regs_api_request_duration_seconds{method,route}` — latency histogram
+- standard Python process/GC/platform collectors
+
+Labels use the route *template* (`/rules/{rule_id}`), not the raw path, so
+cardinality stays bounded. Quick check:
+
+```bash
+curl http://localhost:8000/metrics | head -20
+```
+
+---
+
 ## Source monitoring & auto-ingestion (Phase 5-1)
 
 The pipeline ships a **source monitor** that watches authoritative publishers

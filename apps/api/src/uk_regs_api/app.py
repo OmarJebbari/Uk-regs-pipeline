@@ -46,6 +46,7 @@ from uk_regs_export.renderers import (
 
 from uk_regs_core import get_settings
 
+from uk_regs_api import metrics as api_metrics
 from uk_regs_api.auth import ApiKeyMiddleware
 from uk_regs_api.observability import setup_observability
 from uk_regs_api.ratelimit import get_limiter, setup_rate_limiting, validate_search_query
@@ -83,6 +84,36 @@ app.add_middleware(ApiKeyMiddleware)
 # Lazy limiter reference for per-route decorators (None when slowapi absent).
 _limiter = get_limiter()
 
+@app.middleware("http")
+async def _prometheus_metrics(request: Request, call_next):
+    """Record request count + latency for every HTTP exchange.
+
+    Uses the route *template* (e.g. ``/rules/{rule_id}``) as the label so
+    label cardinality stays bounded; unmatched paths land in ``<unmatched>``.
+    """
+    import time
+
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        api_metrics.record_request(
+            request.method,
+            getattr(request.scope.get("route"), "path", api_metrics.UNMATCHED_ROUTE),
+            500,
+            time.perf_counter() - start,
+        )
+        raise
+    route = request.scope.get("route")
+    api_metrics.record_request(
+        request.method,
+        getattr(route, "path", api_metrics.UNMATCHED_ROUTE),
+        response.status_code,
+        time.perf_counter() - start,
+    )
+    return response
+
+
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
@@ -107,6 +138,13 @@ templates.env.filters["fmt_dt"] = _fmt_dt
 def health() -> dict[str, str]:
     """Liveness probe — process is up and serving."""
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def prometheus_metrics() -> Response:
+    """Prometheus scrape endpoint (text exposition format)."""
+    body, content_type = api_metrics.metrics_payload()
+    return Response(content=body, media_type=content_type)
 
 
 @app.get("/readyz")
