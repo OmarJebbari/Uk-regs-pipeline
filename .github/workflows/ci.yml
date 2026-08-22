@@ -123,3 +123,44 @@ jobs:
       - name: Tear down
         if: always()
         run: docker rm -f api-smoke
+
+  # ---------------------------------------------------------------------------
+  # Terraform gate: format check, init (no backend), validate, and a
+  # speculative plan of a fresh stack (no state → full-create plan). Proves the
+  # IaC in infra/terraform parses and plans cleanly before it reaches AWS.
+  # ---------------------------------------------------------------------------
+  terraform:
+    name: Terraform fmt / validate / plan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infra/terraform
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.3.0
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+
+      - name: Set up Terraform
+        # hashicorp/setup-terraform@v3.1.2
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: Terraform init (no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan (speculative, no state)
+        run: terraform plan -input=false -lock=false -no-color -out=tfplan
+        env:
+          TF_IN_AUTOMATION: "true"
+
+      - name: Terraform show (plan summary)
+        run: terraform show -no-color tfplan | head -40
