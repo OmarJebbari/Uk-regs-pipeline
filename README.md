@@ -685,6 +685,9 @@ make image-push  SVC=api REG=ghcr.io/your-org
 
 ### Production notes
 
+- **Backup & DR:** see the [Backup & Disaster Recovery runbook](docs/BACKUP-DR.md)
+  — what to back up (Postgres / Neo4j / MinIO), restore procedures, RPO/RTO
+  targets, and disaster scenarios.
 - **Dev data-plane hardening:** all data-plane ports in `docker-compose.yml`
   are bound to `127.0.0.1` (loopback only), so the dev credentials for
   Postgres / Neo4j / MinIO are never reachable from the LAN — and the MinIO
