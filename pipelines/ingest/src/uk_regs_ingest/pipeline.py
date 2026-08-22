@@ -84,6 +84,7 @@ class IngestResult:
     applied: bool = False
     rules_persisted: int = 0
     reconcile_skipped: bool = False
+    skipped: bool = False
 
     def summary(self) -> str:
         lines = [
@@ -99,6 +100,7 @@ class IngestResult:
             f"change_set_id     : {self.change_set_id}",
             f"applied           : {self.applied}",
             f"reconcile skipped : {self.reconcile_skipped}",
+            f"skipped (no-op)   : {self.skipped}",
         ]
         return "\n".join(lines)
 
@@ -150,6 +152,7 @@ class IngestPipeline:
         apply: bool = False,
         skip_llm: bool = False,
         out_dir: Path | None = None,
+        force: bool = False,
     ) -> IngestResult:
         """
         Ingest a single PDF.
@@ -164,6 +167,7 @@ class IngestPipeline:
             apply: if True, set new/matched rules to ACTIVE. If False, leave as PROPOSED.
             skip_llm: if True, do deterministic extraction only (fast, cheap, offline)
             out_dir: if set, dump extracted rules + summary as JSON to this directory
+            force: if True, reprocess even when identical bytes were ingested before
         """
         pdf_bytes = pdf_path.read_bytes()
         doc_id = doc_id_from_title(title)
@@ -171,6 +175,26 @@ class IngestPipeline:
         effective = effective_from or date.today()
 
         logger.info("ingest start: %s v=%s sha=%s", doc_id, version, sha[:12])
+
+        # 0. Idempotency fast-path — byte-identical re-ingests are a no-op.
+        if not force and self._already_ingested(doc_id, version, sha):
+            logger.info(
+                "ingest skip: %s v=%s already ingested with identical sha=%s "
+                "(pass force=True to reprocess)",
+                doc_id,
+                version,
+                sha[:12],
+            )
+            return IngestResult(
+                doc_id=doc_id,
+                version=version,
+                pages=0,
+                blocks=0,
+                figures=0,
+                rules_extracted=0,
+                rules_persisted=0,
+                skipped=True,
+            )
 
         # 1. Intake — immutable storage of the source PDF
         self._intake(pdf_bytes, doc_id, version, sha, title, source_url, doc_type)
@@ -284,6 +308,22 @@ class IngestPipeline:
     # ------------------------------------------------------------------ #
     #  Stages
     # ------------------------------------------------------------------ #
+    def _already_ingested(self, doc_id: str, version: str, sha: str) -> bool:
+        """True if this (doc_id, version) was previously ingested with identical bytes.
+
+        Compares the stored ``object_key`` (which embeds the sha) against the
+        key this run would produce. Best-effort: if the DB is unreachable we
+        do *not* skip (fail open to full processing), matching the pipeline's
+        existing resilient style.
+        """
+        try:
+            repo = self.doc_repo or DocumentRepository()
+            stored = repo.get_version_object_key(doc_id, version)
+            return stored == document_key(doc_id, version, sha)
+        except Exception:
+            logger.warning("could not check ingest idempotency (will process)", exc_info=True)
+            return False
+
     def _intake(
         self,
         pdf_bytes: bytes,

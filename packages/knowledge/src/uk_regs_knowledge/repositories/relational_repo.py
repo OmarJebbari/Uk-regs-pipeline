@@ -114,6 +114,20 @@ class DocumentRepository(BaseRepository):
                 },
             )
 
+    def get_version_object_key(self, doc_id: str, version: str) -> str | None:
+        """Object key for a stored (doc_id, version), or None if not seen before.
+
+        Used by the ingest pipeline to skip re-processing byte-identical PDFs.
+        """
+        with self._conn() as c, c.cursor() as cur:
+            cur.execute(
+                "SELECT object_key FROM document_versions"
+                " WHERE doc_id = %(doc_id)s AND version = %(version)s",
+                {"doc_id": doc_id, "version": version},
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
     def count_documents(self) -> int:
         """Total number of distinct documents."""
         with self._conn() as c, c.cursor() as cur:

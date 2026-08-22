@@ -116,6 +116,11 @@ def init_db(schema: Path) -> None:
 @click.option("--skip-llm", is_flag=True, help="Deterministic extraction only (offline, cheap)")
 @click.option("--skip-embed", is_flag=True, help="Do not generate embeddings")
 @click.option(
+    "--force",
+    is_flag=True,
+    help="Reprocess even if identical bytes were already ingested for this version",
+)
+@click.option(
     "--out",
     "out_dir",
     type=click.Path(file_okay=False, path_type=Path),
@@ -133,6 +138,7 @@ def ingest(
     skip_llm: bool,
     skip_embed: bool,
     out_dir: Path | None,
+    force: bool,
 ) -> None:
     """Ingest a single PDF end-to-end."""
     eff = date.fromisoformat(effective_from) if effective_from else None
@@ -149,6 +155,7 @@ def ingest(
         apply=apply,
         skip_llm=skip_llm,
         out_dir=out_dir,
+        force=force,
     )
     _print_result(result)
 
@@ -159,12 +166,14 @@ def ingest(
 @click.option("--skip-llm", is_flag=True)
 @click.option("--skip-embed", is_flag=True)
 @click.option("--apply", is_flag=True)
+@click.option("--force", is_flag=True, help="Reprocess already-ingested files")
 def batch(
     directory: Path,
     version: str,
     skip_llm: bool,
     skip_embed: bool,
     apply: bool,
+    force: bool,
 ) -> None:
     """Ingest every PDF in a directory (title = filename stem)."""
     pdfs = sorted(directory.glob("*.pdf"))
@@ -183,6 +192,7 @@ def batch(
                 version=version,
                 apply=apply,
                 skip_llm=skip_llm,
+                force=force,
             )
             results.append(r)
         except Exception:

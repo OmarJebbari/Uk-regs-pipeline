@@ -281,6 +281,11 @@ uv run uk-regs-ingest batch data/pdfs/ --version 2026-ed1 --skip-llm
 uv run uk-regs-ingest reembed          # backfill embeddings for rules stored without vectors
 ```
 
+Ingest is **idempotent**: if a doc+version was already ingested with a
+byte-identical PDF (same sha256), the run is skipped instantly (no parse, no
+LLM, no DB writes). Re-running a batch is therefore safe and cheap. Pass
+`--force` to re-process a document even when the content is unchanged.
+
 ### 5. Serve context to your IDE
 ```bash
 uv run uk-regs-api          # FastAPI on http://localhost:8000 (REST + /docs)
