@@ -741,6 +741,12 @@ silently change what CI executes. A `uv audit` step also scans the locked
 dependency set (`uv.lock`) for known CVEs on every run, so vulnerable
 dependencies fail the build before merge.
 
+**Docker smoke gate:** a dedicated `docker-smoke` job builds the production
+API image (`infra/docker/Dockerfile.api`) from a clean checkout on every push
+and PR, boots it with the in-memory mock backend, and waits for `/healthz` to
+respond. This proves the Dockerfile (multi-stage `uv` sync, non-root user,
+venv wiring) can never rot silently behind a passing test suite.
+
 ---
 
 ## Configuration
