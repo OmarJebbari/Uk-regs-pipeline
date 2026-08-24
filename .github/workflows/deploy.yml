@@ -59,7 +59,7 @@ jobs:
 
       - name: Login to Amazon ECR
         # aws-actions/amazon-ecr-login@v2.1.0
-        uses: aws-actions/amazon-ecr-login@c75a9a1d9c6f7cf1e4cfb2966839b590c3d46865
+        uses: aws-actions/amazon-ecr-login@261fc3d4806db1fa66a15cc11113c456db8870a7
 
       - name: Set up Docker Buildx
         # docker/setup-buildx-action@v3.10.0
