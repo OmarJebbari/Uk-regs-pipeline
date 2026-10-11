@@ -36,6 +36,48 @@ data/*.jpg
 data/out/
 !data/.gitkeep
 
+# ---- Terraform (state/plans contain secrets — never commit) ----
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+*_override.tf
+*_override.tf.json
+# Secrets belong in TF_VAR_* env vars, never in tfvars. dev/prod are reviewed + safe to track.
+*.tfvars
+!dev.tfvars
+!prod.tfvars
+
+# ---- Backups & database dumps (docs/BACKUP-DR.md writes here) ----
+backups/
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+
+# ---- Local source drop-folder (sources.yaml "local" fetcher) ----
+incoming/
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Private keys / certs ----
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# ---- Coverage extras ----
+.coverage.*
+coverage.xml
+
 # ---- OS ----
 .DS_Store
 Thumbs.db
